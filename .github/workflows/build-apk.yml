@@ -1,0 +1,35 @@
+# 在 GitHub 上自動產生 Android 安裝檔（APK），不用在自己電腦裝 Android Studio。
+# 在 Actions 頁面按「Run workflow」就會建置；
+# 完成後到該次執行的頁面最下面「Artifacts」下載「垃圾車來了-apk」，解壓縮就是 app-debug.apk。
+# 注意：GitHub 上沒有簽章檔，這裡打包的是除錯簽章，不能直接覆蓋自己手機上用固定簽章裝的版本。
+# 只在手動按「Run workflow」時打包（每次上傳網站不用跑）。
+name: 產生 APK
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+      - name: 把網頁正本放進 App
+        run: cp "$( [ -f 垃圾車來了.html ] && echo 垃圾車來了.html || echo index.html )" android/app/src/main/assets/index.html
+      - name: 背景邏輯測試
+        working-directory: android
+        run: |
+          javac -encoding UTF-8 -d build/test app/src/main/java/tw/ben/lajitong/Tracker.java tests/TrackerTest.java
+          java -Dfile.encoding=UTF-8 -cp build/test TrackerTest
+      - name: 建置 APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 垃圾車來了-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk

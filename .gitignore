@@ -1,0 +1,11 @@
+# 不上傳：簽章檔、簽章密碼、打包產物、本機設定
+*.jks
+*.keystore
+keystore.properties
+local.properties
+*.apk
+build/
+.gradle/
+android/app/src/main/assets/index.html
+tests/*.png
+node_modules/

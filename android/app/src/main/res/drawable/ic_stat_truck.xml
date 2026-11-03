@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通知列的小圖示：白色垃圾車 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="124" android:viewportHeight="76">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M6,18 Q6,8 16,8 H80 V58 H6 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M84,22 H110 Q116,22 116,28 V58 H84 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M16,62 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M90,62 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z" />
+</vector>

@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    // 簽章：讀專案根目錄的 keystore.properties（只放在自己電腦，不上傳 GitHub）。
+    // 有這個檔案 → 用固定的簽章檔，新版可以直接覆蓋安裝；沒有 → 用 Android 預設的除錯簽章（不能覆蓋自己手機上的版本）。
+    def ksFile = rootProject.file('keystore.properties')
+    def ks = new Properties()
+    if (ksFile.exists()) ksFile.withInputStream { ks.load(it) }
+    signingConfigs {
+        if (ksFile.exists()) {
+            ljt {
+                storeFile rootProject.file(ks['storeFile'])
+                storePassword ks['storePassword']
+                keyAlias ks['keyAlias']
+                keyPassword ks['keyPassword']
+            }
+        }
+    }
+    namespace 'tw.ben.lajitong'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "tw.ben.lajitong"
+        minSdk 24
+        targetSdk 34
+        versionCode 8
+        versionName "1.7"
+    }
+    buildTypes {
+        debug { if (ksFile.exists()) signingConfig signingConfigs.ljt }
+        release { if (ksFile.exists()) signingConfig signingConfigs.ljt; minifyEnabled false }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // 不用任何外部程式庫（只用 Android 內建的），打包時不必從 Maven Central 下載
+}

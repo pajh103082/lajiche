@@ -1,0 +1,1747 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E7A4F">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="垃圾車來了">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>垃圾車來了</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Huninn&family=Noto+Sans+TC:wght@500;700;900&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous"></script>
+<style>
+/* 自用版：直接讀資料平台的即時資料。大字、單欄、底部三個大按鈕。 */
+:root{
+  --bg:#EEF2EF; --panel:#FFFFFF; --fg:#13201A; --muted:#4A5A52; --line:#C3CEC7;
+  --garbage:#E58A00; --garbage-ink:#2A1A00; --garbage-soft:#FFF1D9;
+  --recycle:#1D5FD6; --recycle-ink:#FFFFFF; --recycle-soft:#E3ECFF;
+  --home:#0E7A4F; --home-soft:#DDF3E8; --warn:#B3261E; --warn-soft:#FDE7E5;
+  --f-display:"Huninn","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  --scale:1; color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0E1512; --panel:#18221D; --fg:#F0F5F2; --muted:#AFC0B6; --line:#34433B;
+  --garbage:#FFAE2E; --garbage-ink:#231500; --garbage-soft:#3A2A0D;
+  --recycle:#6E9DFF; --recycle-ink:#07122B; --recycle-soft:#16264A;
+  --home:#3FD08F; --home-soft:#123526; --warn:#FF8A80; --warn-soft:#3A1614; color-scheme:dark}}
+html{font-size:calc(19px * var(--scale))}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:1rem;line-height:1.55;
+  padding:env(safe-area-inset-top,0px) max(16px,env(safe-area-inset-right,0px)) calc(6.5rem + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible{outline:4px solid var(--home);outline-offset:3px}
+.wrap{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:1rem;padding-top:1rem}
+section.wrap{padding-top:0}
+h1,h2{font-family:var(--f-display);font-weight:400;margin:0;text-wrap:balance}
+.num{font-variant-numeric:tabular-nums}
+header.top{display:flex;justify-content:space-between;align-items:flex-end;gap:.75rem;flex-wrap:wrap}
+header.top h1{font-size:1.9rem;line-height:1.1}
+header.top .date{font-size:1.05rem;color:var(--muted);font-weight:700}
+
+.banner{border-radius:16px;padding:.75rem 1rem;font-weight:700;font-size:1.05rem;display:flex;gap:.7rem;align-items:center}
+.banner .dot{width:1rem;height:1rem;border-radius:50%;flex:none;background:currentColor}
+.banner.ok{background:var(--home-soft);border:2px solid var(--home)}
+.banner.off{background:var(--panel);border:2px solid var(--line);color:var(--muted)}
+.banner.err{background:var(--warn-soft);border:2px solid var(--warn);color:var(--warn)}
+.fresh{font-size:.9rem;color:var(--muted);font-weight:700}
+.bugline{font-size:.8rem;color:var(--warn);background:var(--warn-soft);border:1px dashed var(--warn);border-radius:10px;padding:.4rem .6rem;word-break:break-all}
+.schedchange{border-radius:16px;padding:.75rem 1rem;background:#FFF4CC;color:#3A2A00;border:2px solid #E0A800;display:flex;flex-direction:column;gap:.6rem;font-size:1rem}
+.schedchange.err{background:var(--warn-soft);color:var(--warn);border-color:var(--warn)}
+.schedchange button{align-self:flex-start;border:2px solid currentColor;background:transparent;color:inherit;border-radius:12px;padding:.35rem 1rem;font-weight:900;min-height:2.8rem}
+.schedchange:not(.err) #schedgo{display:none}
+
+.bigbtn{border:0;border-radius:18px;min-height:4.2rem;padding:.8rem 1.2rem;font-size:1.35rem;font-weight:900;background:var(--home);color:var(--panel);width:100%}
+.bigbtn.ghost{background:var(--panel);color:var(--fg);border:2.5px solid var(--fg)}
+.bigbtn:disabled{opacity:.5}
+.start p{margin:.4rem 0 0;color:var(--muted);font-size:.95rem;text-align:center}
+.tracking-on{display:flex;align-items:center;gap:.6rem;font-weight:700;color:var(--home);flex-wrap:wrap}
+.stopbtn2{margin-left:auto;border:2px solid var(--muted);background:var(--panel);color:var(--fg);border-radius:12px;padding:.3rem .8rem;font-weight:900;min-height:2.8rem}
+.pulse{width:.9rem;height:.9rem;border-radius:50%;background:var(--home);animation:p 1.6s infinite;flex:none}
+@keyframes p{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--home) 60%,transparent)}100%{box-shadow:0 0 0 .8rem transparent}}
+
+.card{background:var(--panel);border-radius:22px;border:2px solid var(--line);padding:1rem 1.1rem;display:flex;flex-direction:column;gap:.8rem}
+.card h2{font-size:1.45rem}
+.hint{margin:0;color:var(--muted);font-size:.95rem}
+
+.rcard{border-width:3px}
+.rcard.here{animation:flash 1s steps(2) infinite}
+@keyframes flash{50%{background:var(--home-soft)}}
+.rcard .stop{font-size:1.05rem;font-weight:700;color:var(--muted)}
+.rcard .stop b{color:var(--fg)}
+.rcard .big{font-family:var(--f-display);font-size:2.8rem;line-height:1.1}
+.rcard .sub{font-size:1.15rem;font-weight:700;color:var(--muted)}
+.chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.6rem}
+.chip{display:flex;align-items:center;gap:.7rem;border-radius:16px;padding:.5rem .7rem;min-width:0}
+.chip.garbage{background:var(--garbage-soft)}
+.chip.recycle{background:var(--recycle-soft)}
+.chip.none{background:var(--bg);color:var(--muted)}
+.chip svg{width:4.4rem;flex:none}
+.chip div{min-width:0}
+.chip .badge{font-family:var(--f-display);font-size:1.05rem;border-radius:9px;padding:0 .55rem;display:inline-block}
+.chip.garbage .badge{background:var(--garbage);color:var(--garbage-ink)}
+.chip.recycle .badge{background:var(--recycle);color:var(--recycle-ink)}
+.chip .plate{display:block;font-weight:700;font-size:.95rem}
+.chip .note{display:block;font-size:.85rem;color:var(--muted)}
+.where{font-size:1rem;border-top:2px dashed var(--line);padding-top:.6rem}
+.warnline{color:var(--warn);font-weight:700;font-size:.95rem}
+
+.route{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.route li{display:grid;grid-template-columns:2.2rem 1fr auto;gap:.7rem;align-items:center;min-height:3.1rem}
+.route .rail{position:relative;align-self:stretch;display:flex;justify-content:center}
+.route .rail::before{content:"";position:absolute;top:0;bottom:0;width:6px;background:var(--line);border-radius:3px}
+.route li:first-child .rail::before{top:50%}
+.route li:last-child .rail::before{bottom:50%}
+.route .node{position:relative;align-self:center;width:1.1rem;height:1.1rem;border-radius:50%;background:var(--panel);border:4px solid var(--muted)}
+.route li.passed .node{background:var(--line);border-color:var(--line)}
+.route li.passed .sname{color:var(--muted)}
+.route li.home{background:var(--home-soft);border-radius:14px}
+.route li.home .node{width:1.7rem;height:1.7rem;border-color:var(--home);background:var(--home)}
+.route li.gap .sname{color:var(--muted);font-weight:500;font-size:.95rem}
+.route li.gap .node{border:0;background:transparent}
+.route .sname{font-size:1.05rem;font-weight:700;min-width:0}
+.sno{display:inline-flex;align-items:center;justify-content:center;min-width:1.5rem;height:1.5rem;border-radius:50%;border:2.5px solid var(--rline,#E0178A);font-size:.78rem;font-weight:900;margin-right:.4rem;vertical-align:.1em}
+.route li.passed .sno{border-color:var(--line)}
+.route li.home .sno{background:var(--home);border-color:var(--home);color:var(--panel)}
+.route .stime{font-size:.95rem;color:var(--muted);font-weight:700;padding-right:.4rem}
+.mk{font-size:.8rem;font-weight:900;border-radius:8px;padding:0 .45rem;line-height:1.7;display:inline-block;margin:.15rem .3rem 0 0}
+.mk.g{background:var(--garbage);color:var(--garbage-ink)}
+.mk.r{background:var(--recycle);color:var(--recycle-ink)}
+.mk.h{background:var(--home);color:var(--panel)}
+
+.row{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding:.6rem 0;border-top:2px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row .label{font-size:1.15rem;font-weight:700;min-width:0}
+.row .label small{display:block;font-size:.9rem;color:var(--muted);font-weight:500}
+.stepper{display:flex;align-items:center;gap:.6rem}
+.stepper button{width:3.6rem;height:3.6rem;border-radius:16px;border:2.5px solid var(--fg);background:var(--panel);font-size:2rem;font-weight:900;line-height:1}
+.stepper output{font-family:var(--f-display);font-size:2.6rem;min-width:3.2rem;text-align:center}
+.switch{border:2.5px solid var(--fg);background:var(--panel);border-radius:999px;min-width:6.2rem;height:3.2rem;font-weight:900;font-size:1.1rem;padding:0 1rem}
+.switch[aria-pressed="true"]{background:var(--home);border-color:var(--home);color:var(--panel)}
+.seg{display:inline-flex;border:2.5px solid var(--fg);border-radius:14px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:.5rem .8rem;font-weight:900;white-space:nowrap}
+.sw{white-space:normal}
+.seg.wide{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;width:100%}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+
+.addr{display:flex;flex-direction:column;gap:.6rem}
+.addr input{width:100%;min-height:3.8rem;border-radius:16px;border:2.5px solid var(--fg);background:var(--panel);padding:.5rem .9rem;font-size:1.15rem}
+.btnrow{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.btnrow .bigbtn{font-size:1.15rem;min-height:3.8rem}
+.bigbtn.kofi{display:flex;align-items:center;justify-content:center;text-decoration:none;background:#D63B38;color:#fff}
+.stoplist{display:flex;flex-direction:column;gap:.55rem}
+.stopbtn{display:grid;grid-template-columns:auto 1fr auto;gap:.2rem .8rem;align-items:center;text-align:left;border:2.5px solid var(--line);background:var(--panel);border-radius:16px;padding:.6rem .9rem}
+.stopbtn .tick{width:1.8rem;height:1.8rem;border-radius:8px;border:3px solid var(--line);grid-row:span 2;display:flex;align-items:center;justify-content:center;font-weight:900}
+.stopbtn[aria-pressed="true"]{border-color:var(--home);background:var(--home-soft)}
+.stopbtn[aria-pressed="true"] .tick{background:var(--home);border-color:var(--home);color:var(--panel)}
+.stopbtn .nm{font-size:1.1rem;font-weight:700;min-width:0}
+.stopbtn .tm{font-family:var(--f-display);font-size:1.3rem;white-space:nowrap}
+.stopbtn .meta{grid-column:2/-1;font-size:.88rem;color:var(--muted);min-width:0}
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}
+.legend .l{border-radius:16px;padding:.7rem;display:flex;flex-direction:column;align-items:center;gap:.3rem;text-align:center;font-size:.9rem}
+.legend .l.garbage{background:var(--garbage-soft)}
+.legend .l.recycle{background:var(--recycle-soft)}
+.legend svg{width:5rem}
+.legend .badge{font-family:var(--f-display);font-size:1.1rem;border-radius:9px;padding:0 .6rem}
+
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5000 !important;background:var(--panel);border-top:2px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);
+  padding:0 max(8px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(8px,env(safe-area-inset-left,0px));z-index:20}
+nav.tabs button{border:0;background:transparent;min-height:5.2rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.15rem;font-size:1.05rem;font-weight:900;color:var(--muted)}
+nav.tabs button svg{width:1.9rem;height:1.9rem}
+nav.tabs button[aria-current="page"]{color:var(--fg);box-shadow:inset 0 5px 0 var(--home)}
+
+.alarm{position:fixed;inset:0;z-index:9000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;text-align:center;
+  padding:calc(1.5rem + env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) calc(1.5rem + env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px))}
+.alarm.garbage{background:var(--garbage);color:var(--garbage-ink)}
+.alarm.recycle{background:var(--recycle);color:var(--recycle-ink)}
+.alarm .ring{display:flex;gap:1rem;justify-content:center;animation:shake .5s infinite}
+@keyframes shake{0%,100%{transform:rotate(0)}25%{transform:rotate(-4deg)}75%{transform:rotate(4deg)}}
+.alarm svg{width:min(42vw,11rem);height:auto;color:var(--panel)}
+.alarm .a-kind{font-family:var(--f-display);font-size:2.3rem;line-height:1.15}
+.alarm .a-big{font-family:var(--f-display);font-size:3.6rem;line-height:1.05}
+.alarm .a-sub{font-size:1.3rem;font-weight:700}
+.alarm .a-btns{display:flex;flex-direction:column;gap:.8rem;width:min(100%,24rem)}
+.alarm .a-btns button{min-height:4.6rem;border-radius:20px;font-size:1.5rem;font-weight:900;border:3px solid currentColor;background:transparent}
+.alarm .a-btns button.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(6.2rem + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);font-weight:700;border-radius:14px;padding:.7rem 1.1rem;z-index:30;max-width:calc(100% - 32px);text-align:center}
+/* 地圖 */
+.mapbox{position:relative;z-index:0;isolation:isolate;border-radius:16px;overflow:hidden;border:2px solid var(--line)} /* isolation：地圖裡的圖層（Leaflet 用到 z-index 1000）不會蓋到外面 */
+.map{height:23rem;background:var(--bg)}
+.fsbtn{position:absolute;top:.5rem;right:.5rem;z-index:650;display:flex;align-items:center;gap:.3rem;border:2px solid var(--fg);background:var(--panel);color:var(--fg);border-radius:12px;padding:.3rem .7rem;font-weight:900;font-size:1rem;min-height:2.9rem;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.modebar{right:auto!important;max-width:calc(100% - 9.5rem)}
+.mapbox.full{position:fixed;inset:0;z-index:4000;border:0;border-radius:0;display:flex;flex-direction:column;background:var(--panel);
+  padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+.mapbox.full .maparea{flex:1;min-height:0}
+.mapbox.full .map{height:100%}
+.mapbox.full .mapbtns{grid-template-columns:repeat(3,1fr);gap:.35rem;padding:.45rem}
+.mapbox.full .mapbtns button{font-size:.9rem;min-height:2.8rem;padding:.2rem .3rem;white-space:nowrap}
+.mapbox.full .fsbtn svg{transform:rotate(180deg)}
+body.mapfull{overflow:hidden}
+body.mapfull nav.tabs{display:none}
+.mapbtns{display:grid;grid-template-columns:repeat(auto-fit,minmax(6.6rem,1fr));gap:.45rem;padding:.55rem;background:var(--panel);border-top:2px solid var(--line)}
+.mapbtns button{border:2px solid var(--fg);background:var(--panel);color:var(--fg);border-radius:12px;padding:.25rem .5rem;font-weight:900;font-size:.95rem;min-height:3rem}
+.mapbtns .gbtn{border-color:var(--garbage);background:var(--garbage-soft)}
+.mapbtns .rbtn{border-color:var(--recycle);background:var(--recycle-soft)}
+.chip[data-carid]{cursor:pointer;border:2px solid transparent}
+.chip.garbage[data-carid]:hover,.chip.garbage[data-carid]:focus-visible{border-color:var(--garbage)}
+.chip.recycle[data-carid]:hover,.chip.recycle[data-carid]:focus-visible{border-color:var(--recycle)}
+.chip .tapnote{font-weight:700;color:var(--fg);text-decoration:underline}
+.leaflet-container{font:inherit;background:var(--bg)}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--fg)}
+.leaflet-popup-content{font-size:1rem;line-height:1.4;margin:.7rem .9rem}
+.leaflet-control-attribution{font-size:10px}
+.dimtiles{filter:brightness(.75) contrast(1.05)}
+.gatecircle{stroke:var(--warn);stroke-width:2;stroke-dasharray:4 4;fill:var(--warn);fill-opacity:.12}
+.gateic{filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+.mapbtns .gatebtn{border-color:var(--warn);color:var(--warn)}
+.mapbtns .gatebtn.on{background:var(--warn);color:var(--panel)}
+.mapbox.placing,.mapbox.deleting{border-color:var(--warn);border-width:3px}
+.maparea{position:relative}
+.modebar{position:absolute;left:.5rem;right:.5rem;top:.5rem;z-index:600;background:var(--warn);color:#fff;font-weight:900;font-size:1rem;border-radius:12px;padding:.5rem .8rem;text-align:center;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.gateic .gx{display:none}
+.mapbox.deleting .gateic .gx{display:inline}
+.mapbox.deleting .gateic{transform:scale(1.25);transform-origin:50% 100%;cursor:pointer;animation:wob .9s ease-in-out infinite}
+@keyframes wob{0%,100%{transform:scale(1.25) rotate(0)}50%{transform:scale(1.25) rotate(-6deg)}}
+.mapbtns button:disabled{opacity:.45}
+.toastbtn{margin-left:.8rem;border:2px solid var(--bg);background:transparent;color:var(--bg);border-radius:10px;padding:.2rem .8rem;font-weight:900;font-size:1rem;min-height:2.4rem}
+.toast{pointer-events:auto;z-index:8000!important}
+.mapbox.placing .leaflet-container{cursor:crosshair}
+.popbtn,.delbtn{border:2px solid var(--warn);color:var(--warn);background:var(--panel);border-radius:10px;padding:.3rem .7rem;font-weight:900;margin-top:.4rem;min-height:2.6rem}
+.mkic{width:1.6em;height:1em;vertical-align:-.15em;margin-right:.25em;color:currentColor}
+.mk.g .mkic{color:var(--garbage-ink)} .mk.r .mkic{color:var(--recycle-ink)}
+.rcase{stroke:#FFFFFF;stroke-width:10;stroke-opacity:.9;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.rline{stroke:var(--rline,#E0178A);stroke-width:6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.rpassed{stroke:#8A958F;stroke-width:4;stroke-opacity:.75;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.rconn{stroke:#8A958F;stroke-width:3;stroke-dasharray:1 7;stroke-linecap:round;fill:none}
+.rorder{stroke-width:6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.rstepcase{stroke:#fff;stroke-width:14;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.rstep{stroke:var(--rline,#E0178A);stroke-width:8;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.mapbox.stepping .rline,.mapbox.stepping .rpassed,.mapbox.stepping .rafter,.mapbox.stepping .rorder,.mapbox.stepping .rcase{opacity:.22}
+.stepbar{position:absolute;left:.5rem;right:.5rem;bottom:1.6rem;z-index:640;display:flex;align-items:center;gap:.4rem;background:var(--panel);border:2px solid var(--fg);border-radius:14px;padding:.35rem;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+.stepbar button{flex:none;width:3rem;height:3rem;border-radius:12px;border:2px solid var(--fg);background:var(--panel);color:var(--fg);font-size:1.3rem;font-weight:900}
+.stepbar button:disabled{opacity:.3}
+.stepbar .stepx{width:2.6rem;border-color:var(--line);color:var(--muted)}
+.steptxt{flex:1;min-width:0;text-align:center;line-height:1.3}
+.steptxt b{display:block;font-size:1.05rem}
+.steptxt small{display:block;font-size:.85rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mapbtns .stepbtn{border-color:var(--rline,#E0178A)}
+.lg.grad{height:.5rem;border:0;border-radius:4px;background:linear-gradient(90deg,#00A3C4,#2E6BE6,#7B2FF7,#C21DB8,#E0178A,#F26B1D)}
+.lg.conn{border-top:3px dotted #8A958F}
+.lg.arrowlg{border:0;height:auto;display:flex;justify-content:center;color:#fff;background:var(--rline,#E0178A);border-radius:4px}
+body:not(.rm-order) .lg-order{display:none}
+body.rm-order .lg-progress{display:none}
+.rafter{stroke:var(--rline,#E0178A);stroke-width:4;stroke-opacity:.45;stroke-dasharray:2 9;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.arr{filter:drop-shadow(0 0 1px rgba(0,0,0,.35));display:block}
+.arr.passed path{fill:#8A958F}
+.arr.after{opacity:.5}
+.snum{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#fff;color:#13201A;border:3px solid var(--rline,#E0178A);font:900 12px/1 "Noto Sans TC",sans-serif;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.snum.passed{border-color:#8A958F;color:#8A958F}
+.snum.next{background:var(--garbage);border-color:var(--garbage-ink);color:var(--garbage-ink)}
+.snum.home{background:var(--home);border-color:#fff;color:#fff}
+.snum.sel{outline:3px solid var(--fg);outline-offset:2px}
+.playdot{width:22px;height:22px;border-radius:50%;background:var(--rline,#E0178A);border:4px solid #fff;box-shadow:0 0 0 2px var(--rline,#E0178A),0 2px 6px rgba(0,0,0,.4)}
+.mapbtns .playbtn{grid-column:1/-1;border-color:var(--rline,#E0178A)}
+.playlab{padding:0 .6rem;font-weight:900;font-size:1rem;min-height:0}
+.playlab:empty{display:none}
+.playlab:not(:empty){padding:.1rem .6rem .5rem}
+.legend2{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem;font-size:.92rem;color:var(--muted)}
+.legend2 li{display:flex;align-items:center;gap:.6rem}
+.lg{width:2.4rem;height:0;flex:none;border-top:6px solid var(--rline,#E0178A);border-radius:3px}
+.lg.passed{border-top:4px solid #8A958F}
+.lg.after{border-top:4px dotted var(--rline,#E0178A);opacity:.6}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(7.2rem,1fr));gap:.5rem}
+.sw{border:2.5px solid var(--line);background:var(--panel);color:var(--fg);border-radius:14px;min-height:3.4rem;display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;font-weight:900;font-size:1rem;line-height:1.2;text-align:left;min-width:0;overflow-wrap:anywhere}
+.sw.wide{grid-column:1/-1}
+#arrowsw{grid-template-columns:repeat(3,minmax(0,1fr))}
+.sw .dot{width:1.6rem;height:1.6rem;border-radius:50%;flex:none;border:2px solid #FFFFFF;box-shadow:0 0 0 1px var(--line)}
+.sw[aria-pressed="true"]{border-color:var(--fg);box-shadow:inset 0 0 0 2px var(--fg)}
+#linecolor{width:4.5rem;height:3.2rem;border:2.5px solid var(--fg);border-radius:12px;background:var(--panel);padding:.2rem}
+.rstop{stroke:var(--muted);stroke-width:3;fill:var(--panel)}
+.legend2 .snum{width:1.6rem;height:1.6rem;font-size:.8rem;flex:none}
+.rstop.passed{stroke:var(--line);fill:var(--line)}
+.rstop.next{stroke:var(--garbage-ink);fill:var(--garbage)}
+.rstop.home{stroke:var(--home);fill:var(--home)}
+.rstop.sel{stroke-width:6}
+.tk{display:flex;flex-direction:column;align-items:center;gap:1px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
+.tk svg{width:54px;height:33px}
+.tk.flip svg{transform:scaleX(-1)}
+.tk span{font-size:11px;font-weight:900;border-radius:6px;padding:0 5px;white-space:nowrap;line-height:1.5}
+.tk.garbage{color:var(--garbage)} .tk.garbage span{background:var(--garbage);color:var(--garbage-ink)}
+.tk.recycle{color:var(--recycle)} .tk.recycle span{background:var(--recycle);color:var(--recycle-ink)}
+.tk.other{opacity:.5;filter:grayscale(1)} .tk.other svg{width:36px;height:22px}
+.tk.stale{opacity:.4}
+.tk.offline svg{filter:grayscale(1);opacity:.6}
+.tk.offline span{background:#8A958F!important;color:#fff!important}
+.tk .offtag{background:#C42626!important;color:#fff!important;font-size:11px}
+.chip.offline{background:repeating-linear-gradient(135deg,var(--panel) 0 10px,var(--bg) 10px 20px)!important;border:2px dashed var(--warn)!important}
+.chip.offline svg{filter:grayscale(1);opacity:.6}
+.offbadge{display:inline-block;margin-left:.35rem;background:var(--warn);color:#fff;border-radius:8px;padding:0 .45rem;font-weight:900;font-size:.95rem}
+.offword{color:#C42626}
+.hm{color:var(--home);filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
+.route li[data-i]{cursor:pointer;border-radius:14px}
+.route li[data-i]:hover{background:var(--bg)}
+.route li.sel .sname{text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:4px}
+.route li.gap{cursor:pointer}
+.route li.gap .sname{text-decoration:underline}
+@media (prefers-reduced-motion:reduce){.alarm .ring,.rcard.here,.pulse,.mapbox.deleting .gateic{animation:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="t-garbage" viewBox="0 0 124 76">
+      <path d="M6 18 Q6 8 16 8 H80 V58 H6 Z" fill="currentColor"/>
+      <path d="M6 18 L0 30 V54 H6 Z" fill="currentColor" opacity=".75"/>
+      <rect x="82" y="22" width="34" height="36" rx="6" fill="currentColor"/>
+      <rect x="96" y="27" width="16" height="12" rx="2" fill="var(--panel)"/>
+      <path d="M36 22 q7-6 14 0 l-3 4 q12 6 10 20 q-1 7-14 7 q-13 0-14-7 q-2-14 10-20 z" fill="var(--fg)" opacity=".85"/>
+      <circle cx="26" cy="62" r="10" fill="var(--fg)"/><circle cx="26" cy="62" r="4" fill="var(--panel)"/>
+      <circle cx="100" cy="62" r="10" fill="var(--fg)"/><circle cx="100" cy="62" r="4" fill="var(--panel)"/>
+    </symbol>
+    <symbol id="t-recycle" viewBox="0 0 124 76">
+      <rect x="4" y="46" width="76" height="10" rx="2" fill="currentColor"/>
+      <g stroke="currentColor" stroke-width="3.5" fill="none"><rect x="6" y="10" width="72" height="36" rx="3"/><path d="M18 10V46M30 10V46M54 10V46M66 10V46"/></g>
+      <g transform="translate(42 28)" fill="none" stroke="var(--fg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M-4-12 L-11 0"/><path d="M-13-4 L-11 0 L-6.5-1.5"/><path d="M-9 8 H5"/><path d="M2 4 L5 8 L1.5 11.5"/><path d="M11 4 L4-9"/><path d="M8.5-10 L4-9 L3.5-4.5"/>
+      </g>
+      <rect x="82" y="22" width="34" height="36" rx="6" fill="currentColor"/>
+      <rect x="96" y="27" width="16" height="12" rx="2" fill="var(--panel)"/>
+      <circle cx="26" cy="62" r="10" fill="var(--fg)"/><circle cx="26" cy="62" r="4" fill="var(--panel)"/>
+      <circle cx="100" cy="62" r="10" fill="var(--fg)"/><circle cx="100" cy="62" r="4" fill="var(--panel)"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="top"><h1>垃圾車來了</h1><div class="date num" id="date"></div></header>
+  <div class="banner err" id="err" hidden><span class="dot"></span><span id="errtxt"></span></div>
+  <div class="bugline" id="bugline" hidden></div>
+
+  <section id="view-home" class="wrap">
+    <div id="nosetup" class="card" hidden>
+      <h2>先告訴我您家在哪裡</h2>
+      <p class="hint">輸入地址，選您倒垃圾的那一站，之後打開就會自動追蹤。</p>
+      <button class="bigbtn" id="gosetup">設定我家地址</button>
+    </div>
+    <div id="homebody" hidden class="wrap" style="padding:0">
+      <div class="banner" id="today"><span class="dot"></span><span id="todaytxt"></span></div>
+      <div class="schedchange" id="schedchange" hidden><div id="schedtxt"></div><button id="schedok">知道了</button><button id="schedgo" class="ghost2">去重新選站</button></div>
+      <div class="start" id="startbox">
+        <button class="bigbtn" id="startbtn">開始追蹤，車快到時響鈴</button>
+        <p>按一下才能響鈴。追蹤時請讓這個畫面開著，手機不要鎖螢幕。</p>
+      </div>
+      <div class="tracking-on" id="trackingon" hidden><span class="pulse"></span><span>追蹤中，車子還有 <span id="thr-inline" class="num"></span> 站時會響鈴<span id="bgnote"></span></span><button class="stopbtn2" id="stopbtn">停止追蹤</button></div>
+      <div class="fresh num" id="fresh"></div>
+      <div class="fresh num" id="schedinfo"></div>
+      <div class="schedchange" id="noticeline" hidden></div>
+      <div id="cards" class="wrap" style="padding:0"></div>
+    </div>
+  </section>
+
+  <section id="view-alert" class="wrap" hidden>
+    <div class="card">
+      <h2>什麼時候提醒我</h2>
+      <div class="row">
+        <div class="label">車子還有幾站時響鈴<small>建議 3 站。每站大約 3～4 分鐘。</small></div>
+        <div class="stepper"><button id="thr-minus" aria-label="少一站">−</button><output id="thr" class="num">3</output><button id="thr-plus" aria-label="多一站">＋</button></div>
+      </div>
+      <div class="row"><div class="label">車到我家這站時再響一次</div><button class="switch" id="sw-arrive" aria-pressed="true">開</button></div>
+    </div>
+    <div class="card">
+      <h2>怎麼提醒我</h2>
+      <div class="row"><div class="label">鬧鐘鈴聲</div><button class="switch" id="sw-sound" aria-pressed="true">開</button></div>
+      <div class="row"><div class="label">說話提醒<small>手機會唸出「垃圾車還有 3 站」</small></div><button class="switch" id="sw-voice" aria-pressed="true">開</button></div>
+      <div class="row"><div class="label">震動</div><button class="switch" id="sw-vib" aria-pressed="true">開</button></div>
+      <button class="bigbtn ghost" id="testbtn">試聽一次鬧鐘</button>
+      <button class="bigbtn ghost" id="batterybtn" hidden>讓背景提醒更準時（關閉省電限制）</button>
+    </div>
+    <div class="card">
+      <h2>經過提醒點</h2>
+      <p class="hint">在「我家」的地圖上按「放提醒點」，再點一下路上的位置。要刪掉就按「刪除提醒點」，再點地圖上的紅色提醒點。您這條路線的垃圾車或回收車經過那裡，就會響鈴。要先按「開始追蹤」才會響。</p>
+      <div class="row"><div class="label">經過提醒點時響鈴</div><button class="switch" id="sw-gate" aria-pressed="true">開</button></div>
+      <div class="row"><div class="label">新提醒點的範圍<small>車子進到這個距離內就算經過</small></div>
+        <span class="seg" role="group" aria-label="提醒點範圍"><button id="gr50" data-gr="50">50 公尺</button><button id="gr100" data-gr="100">100</button><button id="gr200" data-gr="200">200</button></span></div>
+      <div id="gatelist" class="stoplist"></div>
+    </div>
+  </section>
+
+  <section id="view-settings" class="wrap" hidden>
+    <div class="card">
+      <h2>畫面</h2>
+      <div class="row"><div class="label">字的大小<small>看不清楚就選「特大」</small></div><span class="seg" role="group" aria-label="字的大小"><button id="fs1" data-fs="1">大</button><button id="fs2" data-fs="1.2">特大</button></span></div>
+    </div>
+    <div class="card">
+      <h2>地圖上的路線</h2>
+      <div class="row"><div class="label">路線怎麼顯示</div></div>
+      <div class="seg wide" role="group" aria-label="路線顯示方式"><button id="rm-progress" data-rm="progress">標出接下來的路</button><button id="rm-order" data-rm="order">依先後順序變色</button></div>
+      <p class="hint" id="rmhint"></p>
+      <div class="row"><div class="label">路線顏色<small>「依先後順序變色」時不使用</small></div></div>
+      <p class="hint">選一個在地圖上最看得清楚的顏色。</p>
+      <div class="swatches" id="swatches"></div>
+      <div class="row"><div class="label">自己選顏色<small>點右邊的色塊，挑任何顏色</small></div><input type="color" id="linecolor" aria-label="自己選路線顏色"></div>
+      <div class="row"><div class="label">箭頭顏色</div></div>
+      <div class="swatches" id="arrowsw"></div>
+      <div class="row"><div class="label">箭頭大小</div><span class="seg" role="group" aria-label="箭頭大小"><button id="as-s" data-as="s">小</button><button id="as-m" data-as="m">中</button><button id="as-l" data-as="l">大</button></span></div>
+    </div>
+    <div class="card">
+      <h2>多久更新一次車子位置</h2>
+      <p class="hint">垃圾車和回收車大約每 20 秒回報一次位置，所以更新得比 10 秒更快也不會更準。越快越耗電、耗網路。</p>
+      <span class="seg wide" role="group" aria-label="更新頻率"><button id="pl10" data-poll="10">10 秒</button><button id="pl20" data-poll="20">20 秒</button><button id="pl30" data-poll="30">30 秒</button><button id="pl60" data-poll="60">1 分鐘</button></span>
+    </div>
+    <div class="card">
+      <h2>怎麼分辨兩種車</h2>
+      <div class="legend">
+        <div class="l garbage"><svg viewBox="0 0 124 76" style="color:var(--garbage)"><use href="#t-garbage"/></svg><span class="badge" style="background:var(--garbage);color:var(--garbage-ink)">垃圾車</span><span>橘色、整台關起來的箱子，上面畫垃圾袋</span></div>
+        <div class="l recycle"><svg viewBox="0 0 124 76" style="color:var(--recycle)"><use href="#t-recycle"/></svg><span class="badge" style="background:var(--recycle);color:var(--recycle-ink)">回收車</span><span>藍色、有欄杆的車斗，上面畫回收箭頭</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>支持這個 App</h2>
+      <p class="hint">這個 App 免費、沒有廣告。覺得好用的話，可以請作者喝杯咖啡，支持之後繼續更新。</p>
+      <a class="bigbtn kofi" href="https://ko-fi.com/sagiriben" target="_blank" rel="noopener">到 Ko-fi 贊助</a>
+    </div>
+  </section>
+
+  <section id="view-stop" class="wrap" hidden>
+    <div class="card">
+      <h2>我家地址</h2>
+      <div class="addr">
+        <label for="addr" class="hint">寫完整一點，例如：新竹縣新豐鄉長春路127號</label>
+        <input id="addr" type="text" autocomplete="street-address" placeholder="新竹縣新豐鄉○○路○○號">
+        <div class="btnrow">
+          <button class="bigbtn" id="searchbtn">找附近的站</button>
+          <button class="bigbtn ghost" id="gpsbtn">用我現在的位置</button>
+        </div>
+      </div>
+    </div>
+    <div class="card" id="resultcard" hidden>
+      <h2>選您倒垃圾的那一站</h2>
+      <p class="hint" id="resulthint">可以選 1 到 3 站。選好按最下面的「就用這幾站」。</p>
+      <div class="stoplist" id="stoplist"></div>
+      <button class="bigbtn" id="savebtn" disabled>就用這幾站</button>
+    </div>
+    <div class="card" id="current" hidden>
+      <h2>目前追蹤的站</h2>
+      <div id="currentlist" class="stoplist"></div>
+    </div>
+    <div class="card" id="recyclecard" hidden>
+      <h2>我家的回收車</h2>
+      <p class="hint">清潔隊的資料只登記垃圾車，沒有說哪台回收車跑您的路線。「自動判斷」會查每台回收車的行車紀錄，看哪一台跟著垃圾車一站一站收（今天的，或前幾週同一個星期幾的），所以一打開就認得出來。回收車常常不是每天都跟，例如有的路線星期二沒有回收車，那天就會顯示「沒有回收車」。您也可以直接選車牌。</p>
+      <div id="recyclelist" class="wrap" style="padding:0"></div>
+    </div>
+  </section>
+</div>
+
+<nav class="tabs" aria-label="主選單">
+  <button id="tab-home" data-view="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M3 11 12 3l9 8v10h-6v-6H9v6H3z"/></svg>我家</button>
+  <button id="tab-alert" data-view="alert"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9a6 6 0 0 1 12 0c0 6 3 7 3 7H3s3-1 3-7"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>提醒</button>
+  <button id="tab-settings" data-view="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>設定</button>
+  <button id="tab-stop" data-view="stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>改地址</button>
+</nav>
+
+<div class="alarm" id="alarm" hidden role="alertdialog" aria-modal="true" aria-labelledby="a-big">
+  <div class="ring" id="a-icons"></div>
+  <div class="a-kind" id="a-kind"></div>
+  <div class="a-big num" id="a-big"></div>
+  <div class="a-sub num" id="a-sub"></div>
+  <div class="a-btns"><button class="primary" id="a-ok">我知道了</button><button id="a-snooze">下一站再提醒我</button></div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+"use strict";
+// 資料來源：垃圾車資料平台網頁地圖使用的查詢網址（非官方公開 API，可能隨時變動）
+const EP="https://customer-tw.eupfin.com/Eup_Servlet_Nuser_SOAP/Eup_Servlet_Nuser_SOAP";
+const $=id=>document.getElementById(id);
+
+async function api(p){
+  const r=await fetch(EP,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"Param="+encodeURIComponent(JSON.stringify(p))});
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  const j=JSON.parse(await r.text());
+  if(j.status!==1) throw new Error(String(j.error||"查詢失敗").split("\r")[0]);
+  return Array.isArray(j.result)?j.result:[];
+}
+
+// ---------- 儲存 ----------
+const DEF={thr:3,arrive:true,sound:true,voice:true,vib:true,fs:1,setup:null,gates:[],gateOn:true,gateR:100,poll:20,lineColor:"#E0178A",routeMode:"progress",arrowColor:"#FFFFFF",arrowSize:"m",recycle:{},learn:{},learnChecked:{}};
+let S=Object.assign({},DEF);
+try{const s=JSON.parse(localStorage.getItem("ljt-live")||"null");if(s)S=Object.assign(S,s);}catch(e){}
+function save(){try{localStorage.setItem("ljt-live",JSON.stringify(S))}catch(e){} if(typeof appSync==="function") appSync();}
+
+// ---------- 時間工具 ----------
+const toMin=t=>{const [h,m]=String(t).split(":").map(Number);return h*60+m};
+const nowMin=()=>{const d=new Date();return d.getHours()*60+d.getMinutes()+d.getSeconds()/60};
+const todayIdx=()=>(new Date().getDay()+6)%7; // 資料平台：0=週一 … 6=週日
+function clock(min){min=Math.round(min);const h=Math.floor(min/60)%24,m=min%60;const p=h<5?"凌晨":h<12?"早上":h<13?"中午":h<18?"下午":"晚上";return p+" "+(h%12||12)+":"+String(m).padStart(2,"0")}
+function logTime(s){const t=Date.parse(String(s).replace(" ","T")+"+08:00");return isNaN(t)?0:t}
+function dist(a,b,c,d){const R=6371000,r=Math.PI/180,x=(c-a)*r,y=(d-b)*r;const h=Math.sin(x/2)**2+Math.cos(a*r)*Math.cos(c*r)*Math.sin(y/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+const shortName=n=>String(n||"").replace(/^(新竹縣|新竹市)?[^縣市]{1,3}[鄉鎮市區]/,"");
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const typeOf=style=>/回收/.test(style||"")?"recycle":"garbage";
+const kindName=t=>t==="recycle"?"資源回收車":"垃圾車";
+
+let errShown=0;
+function reportErr(e){ // 程式出錯時，在畫面上方用紅字顯示，方便截圖回報
+  try{ console.error(e); const msg=(e&&e.message)||String(e); if(Date.now()-errShown<3000) return; errShown=Date.now();
+    const el=$("bugline"); if(el){ el.hidden=false; el.textContent="程式出錯（請截圖給 Claude）："+msg.slice(0,160)+((e&&e.stack)?"｜"+String(e.stack).split("\n").slice(1,3).join(" ").replace(/\s+/g," ").slice(0,200):""); } }catch(x){}
+}
+window.addEventListener("error",e=>{ if(e.target&&e.target!==window&&e.target.tagName) return; reportErr(e.error||((e.message||"")+" @"+(e.filename||"").split("/").pop()+":"+e.lineno)); },true);
+window.addEventListener("unhandledrejection",e=>reportErr(e.reason));
+function showErr(msg){$("err").hidden=!msg;$("errtxt").textContent=msg||""}
+function toast(msg,act){const t=$("toast");t.textContent=msg;
+  if(act){const b=document.createElement("button");b.className="toastbtn";b.textContent=act.label;b.onclick=()=>{t.hidden=true;act.fn();};t.appendChild(b);}
+  t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,act?6000:2800)}
+
+// ---------- 設定我家 ----------
+let found=null, picked=new Set();
+async function lookup(lat,lng,label){
+  showErr(""); $("resultcard").hidden=false; $("stoplist").innerHTML='<p class="hint">正在找附近的站…</p>'; $("savebtn").disabled=true;
+  try{
+    const c=await api({GISX:Math.round(lng*1e6),GISY:Math.round(lat*1e6),MethodName:"GetCustIDByLocation"});
+    if(!c.length||!c[0].Cust_ID){ $("stoplist").innerHTML='<p class="warnline">這個地方查不到垃圾車路線，可能不在服務範圍內。</p>'; return; }
+    const pts=await api({Cust_ID:String(c[0].Cust_ID),Time:0,RemovalType:0,GISX:lng,GISY:lat,Range:600,MethodName:"GetRecommandPoint"});
+    pts.sort((a,b)=>a.Distance-b.Distance);
+    found={lat,lng,label,cust:String(c[0].Cust_ID),team:String(c[0].Team_ID),pts:pts.slice(0,14)};
+    picked=new Set();
+    if(!found.pts.length){ $("stoplist").innerHTML='<p class="warnline">600 公尺內找不到垃圾車停靠點。請確認地址，或換「用我現在的位置」。</p>'; return; }
+    renderFound();
+  }catch(e){ $("stoplist").innerHTML=""; showErr("連不上垃圾車的資料："+e.message+"。請檢查網路後再試一次。"); }
+}
+function renderFound(){
+  $("stoplist").innerHTML=found.pts.map((p,i)=>{
+    const d=p.Details||[];const times=d.map(x=>x.Time).join("、");const week=(d[0]&&d[0].Week)||"";
+    return `<button class="stopbtn" id="pick-${i}" data-i="${i}" aria-pressed="${picked.has(i)}"><span class="tick">${picked.has(i)?"✓":""}</span><span class="nm">${esc(shortName(p.PointName))}</span><span class="tm num">${esc(times)}</span><span class="meta">離您 ${Math.round(p.Distance)} 公尺・${esc(week)}・${esc(p.RouteName)}</span></button>`;
+  }).join("");
+  $("savebtn").disabled=picked.size===0;
+}
+$("stoplist").addEventListener("click",e=>{const b=e.target.closest(".stopbtn");if(!b)return;const i=+b.dataset.i;
+  if(picked.has(i))picked.delete(i);else{if(picked.size>=3){toast("最多選 3 站");return;}picked.add(i);} renderFound();});
+$("searchbtn").onclick=async()=>{
+  const a=$("addr").value.trim(); if(!a){toast("請先輸入地址");$("addr").focus();return;}
+  showErr(""); $("searchbtn").disabled=true;
+  try{const g=await api({Address:a,MethodName:"GetGisFromAddr"});
+    if(!g.length||!g[0].GISX){showErr("找不到這個地址。請寫完整，例如：新竹縣新豐鄉長春路127號");return;}
+    await lookup(g[0].GISY,g[0].GISX,a);
+  }catch(e){showErr("連不上垃圾車的資料："+e.message);}finally{$("searchbtn").disabled=false;}
+};
+$("addr").addEventListener("keydown",e=>{if(e.key==="Enter")$("searchbtn").click();});
+$("gpsbtn").onclick=()=>{
+  if(!navigator.geolocation){showErr("這支手機的瀏覽器不能定位，請改用輸入地址。");return;}
+  toast("正在定位…");
+  navigator.geolocation.getCurrentPosition(p=>lookup(p.coords.latitude,p.coords.longitude,"我現在的位置"),
+    ()=>showErr("沒辦法取得位置。請允許定位，或改用輸入地址。"),{enableHighAccuracy:true,timeout:15000});
+};
+$("savebtn").onclick=async()=>{
+  $("savebtn").disabled=true; $("savebtn").textContent="正在下載路線…";
+  try{
+    // 站的順序用資料平台的路線總表（GetAllRouteBasicData，有官方站序 Seq）；拿不到才用大範圍搜尋、依表定時間排
+    const basic=await routeBasic(found.cust);
+    let all=null;
+    const homes=[];
+    for(const i of picked){
+      const p=found.pts[i];
+      const brow=(basic||[]).find(r=>String(r.Route_ID)===String(p.Route_ID));
+      let stops=stopsFromBasic(basic,p.Route_ID);
+      if(!stops){
+        if(!all) all=await api({Cust_ID:found.cust,Time:0,RemovalType:0,GISX:found.lng,GISY:found.lat,Range:12000,MethodName:"GetRecommandPoint"});
+        stops=all.filter(x=>x.Route_ID===p.Route_ID).map(x=>({id:x.Point_ID,name:x.PointName,time:(x.Details[0]||{}).Time||"",period:(x.Details[0]||{}).RoutePeriod||[],lat:x.GISY,lng:x.GISX}));
+        stops.sort((a,b)=>toMin(a.time)-toMin(b.time));
+      }
+      if(!stops.find(s=>s.id===p.Point_ID)){ stops.push({id:p.Point_ID,name:p.PointName,time:p.Details[0].Time,period:p.Details[0].RoutePeriod,lat:p.GISY,lng:p.GISX}); stops.sort((a,b)=>toMin(a.time)-toMin(b.time)); }
+      homes.push({routeId:p.Route_ID,routeName:p.RouteName,plate:p.Car_Number,pointId:p.Point_ID,pointName:p.PointName,time:p.Details.map(d=>d.Time).join("、"),week:(p.Details[0]||{}).Week||"",period:(p.Details[0]||{}).RoutePeriod||[],stops,stopsV:2,carUnicode:brow&&brow.CarUnicode?String(brow.CarUnicode):""});
+    }
+    S.setup={label:found.label,lat:found.lat,lng:found.lng,cust:found.cust,team:found.team,homes,saved:new Date().toISOString(),synced:basic?Date.now():0};
+    save(); fired={}; snooze={}; built="";
+    toast("設定好了"); $("resultcard").hidden=true; renderCurrent(); go("home"); refresh(); ensurePaths().then(()=>render());
+  }catch(e){showErr("下載路線失敗："+e.message);}
+  finally{$("savebtn").disabled=false;$("savebtn").textContent="就用這幾站";}
+};
+// 資料平台的路線總表：每條路線的全部站（含官方站序 Seq）和負責的垃圾車。只有垃圾車，沒有回收車。
+async function routeBasic(cust){ try{ return await api({Cust_ID:String(cust),MethodName:"GetAllRouteBasicData"}); }catch(e){ return null; } }
+function stopsFromBasic(basic,routeId){
+  const br=(basic||[]).find(r=>String(r.Route_ID)===String(routeId)); if(!br||!br.Points||br.Points.length<2) return null;
+  return br.Points.slice().sort((a,b)=>(a.Seq||0)-(b.Seq||0)||toMin((a.Details[0]||{}).Time)-toMin((b.Details[0]||{}).Time))
+    .map(x=>({id:x.Point_ID,name:x.PointName,time:(x.Details[0]||{}).Time||"",period:(x.Details[0]||{}).RoutePeriod||[],week:(x.Details[0]||{}).Week||"",lat:x.GISY,lng:x.GISX,seq:x.Seq}));
+}
+// ---------- 班表同步 ----------
+// 站、時間、星期幾收是清潔隊在資料平台裡維護的，可能會改。每天第一次打開、之後每 6 小時重新抓一次路線總表，
+// 有變動就更新並提示。負責的垃圾車本來就是每次即時查（GetRemovalStatus），不會用到舊資料。
+const SYNC_MS=6*3600e3;
+// ---------- 清潔隊公告的回收車班表 ----------
+// 資料平台只有垃圾車路線，沒有回收車。清潔隊會在資料平台的「公告」（GetMsg）貼班表圖片，
+// 2026-07-29 公告「8月1日起清潔車號一覽表」＝「新豐鄉清潔隊垃圾車及資收車清運一覽表 115年8月至116年7/31」。
+// 下面照那張圖抄下來（第 7～9 列還沒抄到，那幾條路線改用行車紀錄判斷）。星期：0=一 … 6=日。
+// 清潔隊之後如果公告新的班表（GetMsg 標題有「車號／一覽表／班表／清運表／資收」而且日期比這張新），就不再相信這張表，改用行車紀錄判斷，並在畫面上提醒。
+const OFFICIAL={cust:"5002889",from:"2026-08-01",to:"2027-07-31",srcId:10473,srcDate:"2026-07-29",title:"8月1日起清潔車號一覽表",
+  routes:[
+    {garbage:"KEJ-6522",name:"重興、崎頂",recycle:[["KEG-5910",[0,1,3,4,5]]]},
+    {garbage:"KEQ-9216",name:"新豐市區、坪頂",recycle:[["AAG-731",[0,1,3,4,5]]]},
+    {garbage:"KEK-0572",name:"鳳坑、員山",recycle:[["KEC-2128",[1,3]],["KEU-1883",[5]]]},
+    {garbage:"KEJ-6523",name:"忠孝、松林",recycle:[["KEC-2128",[0,4,5]],["KEU-1883",[3]]]},
+    {garbage:"KEV-8025",name:"青埔、中崙、福興、後湖、瑞興",recycle:[["KEJ-6187",[0,4]],["KEU-1883",[1]]]},
+    {garbage:"AAG-167",name:"青埔、中崙、福興、後湖、瑞興",recycle:[["KEU-1882",[1,3]],["KEU-1883",[4]]]}
+  ]};
+const plateKey=p=>String(p||"").toUpperCase().replace(/[^A-Z0-9-]/g,"");
+const SCHED_RE=/車號|一覽表|班表|清運表|清運時間|收運時間|排班|資收車|回收車/;
+function dayStr(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function officialActive(){ // 這張表今天還能用嗎
+  const st=S.setup, today=dayStr(new Date()); if(!st||String(st.cust)!==OFFICIAL.cust) return false;
+  if(today<OFFICIAL.from||today>OFFICIAL.to) return false;
+  const n=S.schedNotice; return !(n&&n.date>OFFICIAL.srcDate); // 有比較新的班表公告：這張可能過期了
+}
+function officialFor(h){ // 這條路線今天的官方回收車：{plate} / {none:true} / null（表上沒有這條路線）
+  if(!officialActive()) return null;
+  const r=OFFICIAL.routes.find(x=>plateKey(h.plate)===plateKey(x.garbage)); if(!r) return null;
+  const dw=todayIdx(), hit=r.recycle.find(([p,days])=>days.includes(dw));
+  return hit?{plate:hit[0],days:hit[1]}:{none:true};
+}
+function carByPlate(plate){ const k=plateKey(plate);
+  const c=cars.find(x=>x.type==="recycle"&&plateKey(x.plate)===k); if(c) return c;
+  for(const id in lastSeen){ const m=lastSeen[id]; if(m.type==="recycle"&&plateKey(m.plate)===k) return getCar(id); }
+  return null; }
+function schedEpoch(){ // 目前這份班表從哪天開始：比這天早的行車紀錄比對結果不用
+  const a=[]; if(officialActive()) a.push(OFFICIAL.from); if(S.schedNotice&&S.schedNotice.date) a.push(S.schedNotice.date);
+  return a.sort().pop()||""; }
+let msgChecked=0;
+async function checkNotices(force){ // 一天看一次清潔隊公告，有新的班表就記下來
+  const st=S.setup; if(!st) return; if(!force&&Date.now()-msgChecked<6*3600e3) return; msgChecked=Date.now();
+  try{ const ms=await api({Cust_ID:String(st.cust),MethodName:"GetMsg"});
+    const hits=ms.filter(m=>SCHED_RE.test(m.RM_Title||"")).map(m=>({id:m.RM_ID,title:m.RM_Title,date:String(m.RM_DateTime||"").slice(0,10)})).sort((a,b)=>a.date<b.date?1:-1);
+    const top=hits[0];
+    if(top&&(!S.schedNotice||S.schedNotice.id!==top.id)&&!(String(st.cust)===OFFICIAL.cust&&top.id===OFFICIAL.srcId)){ S.schedNotice=Object.assign({seen:false},top); save(); render(); }
+  }catch(e){}
+}
+let syncing=false;
+async function syncSchedule(force){
+  const st=S.setup; if(!st||syncing) return;
+  const fresh=st.synced&&Date.now()-st.synced<SYNC_MS&&new Date(st.synced).toDateString()===new Date().toDateString();
+  if(fresh&&!force) return;
+  syncing=true;
+  try{
+    const basic=await routeBasic(st.cust); if(!basic||!basic.length) return; // 連不上：下次再試
+    const changes=[]; let pathDirty=false;
+    const sig=a=>a.map(x=>x.id+"@"+x.time+"@"+(x.period||[]).join("")).join("|");
+    st.homes.forEach(h=>{
+      const br=basic.find(r=>String(r.Route_ID)===String(h.routeId));
+      if(!br){ if(!h.gone) changes.push("「"+h.routeName+"」這條路線已經不在清潔隊的班表上，請到「改地址」重新選站"); h.gone=true; return; }
+      h.gone=false;
+      const ns=stopsFromBasic(basic,h.routeId); if(!ns) return;
+      const home=ns.find(x=>x.id===h.pointId), oldHome=h.stops.find(x=>x.id===h.pointId)||{};
+      if(!home){ if(!h.homeGone) changes.push("您家這站「"+shortName(h.pointName)+"」已經不在班表上，請到「改地址」重新選站"); h.homeGone=true; }
+      else {
+        h.homeGone=false;
+        if(home.time&&home.time!==oldHome.time) changes.push("您家這站的時間從 "+(oldHome.time||"?")+" 改成 "+home.time);
+        const np=(home.period||[]).join(","); if(np&&np!==(h.period||[]).join(",")){ changes.push("收運日改成「"+(home.week||np)+"」"); h.period=home.period; if(home.week) h.week=home.week; }
+        h.time=home.time||h.time;
+      }
+      if(home&&sig(ns)!==sig(h.stops)){ // 我家這站不見了就先不換站（保留舊的，請使用者重新選）
+        const added=ns.filter(x=>!h.stops.find(y=>y.id===x.id)).length, removed=h.stops.filter(x=>!ns.find(y=>y.id===x.id)).length;
+        if(added||removed) changes.push("「"+h.routeName+"」的站有變動：多了 "+added+" 站、少了 "+removed+" 站");
+        else if(!changes.length) changes.push("「"+h.routeName+"」有幾站的時間調整了");
+        if(added||removed||ns.map(x=>x.id).join()!==h.stops.map(x=>x.id).join()){ delete h.path; delete h.pathFail; pathDirty=true; }
+        h.stops=ns; h.stopsV=2;
+      }
+      if(br.Car_Number&&h.plate&&br.Car_Number!==h.plate) changes.push("「"+h.routeName+"」負責的垃圾車從 "+h.plate+" 換成 "+br.Car_Number);
+      if(br.Car_Number) h.plate=br.Car_Number;
+      if(br.CarUnicode) h.carUnicode=String(br.CarUnicode);
+      if(br.RouteName) h.routeName=br.RouteName;
+    });
+    st.synced=Date.now();
+    checkNotices(force);
+    if(changes.length){ st.changes={t:Date.now(),list:changes,ack:false}; built=""; }
+    save(); render();
+    if(pathDirty) ensurePaths().then(()=>render());
+  } finally { syncing=false; }
+}
+function renderSchedInfo(){
+  const st=S.setup, el=$("schedinfo"), ch=$("schedchange"); if(!st||!el) return;
+  el.textContent=(st.synced?("班表："+(new Date(st.synced).toDateString()===new Date().toDateString()?"今天":(new Date(st.synced).getMonth()+1)+"/"+new Date(st.synced).getDate())+" "+clockOf(st.synced)+" 更新"):"班表：還沒核對過")+
+    (officialActive()?"・回收車照清潔隊「"+OFFICIAL.title+"」（到 "+OFFICIAL.to.slice(5).replace("-","/")+"）":"");
+  const sn=$("noticeline"); const n=S.schedNotice;
+  if(sn){ sn.hidden=!n; if(n) sn.innerHTML="<b>清潔隊 "+esc(n.date.slice(5).replace("-","/"))+" 公告了「"+esc(n.title)+"」</b><br>回收車可能換班了，現在改用行車紀錄判斷哪台跟著垃圾車收（收幾站後就會認出來）。"+(n.seen?"":'<button id="noticeok">知道了</button>');
+    const b=$("noticeok"); if(b) b.onclick=()=>{ n.seen=true; save(); renderSchedInfo(); }; }
+  const bad=st.homes.some(h=>h.homeGone||h.gone);
+  const c=st.changes, show=c&&(!c.ack||bad)&&Date.now()-c.t<3*86400e3;
+  ch.hidden=!show&&!bad; ch.classList.toggle("err",bad);
+  if(!ch.hidden) $("schedtxt").innerHTML="<b>"+(bad?"要重新選站":"班表有更新（"+(new Date(c.t).getMonth()+1)+"/"+new Date(c.t).getDate()+"）")+"</b><br>"+((c&&c.list)||[]).map(esc).join("<br>");
+  $("schedok").hidden=bad;
+}
+async function ensureStops(){ // 舊設定的站是用搜尋湊的，換成路線總表的官方站序
+  const st=S.setup; if(!st||st.homes.every(h=>h.stopsV===2)) return;
+  const basic=await routeBasic(st.cust); if(!basic) return;
+  let changed=false;
+  st.homes.forEach(h=>{ if(h.stopsV===2) return; const ns=stopsFromBasic(basic,h.routeId);
+    if(ns&&ns.find(x=>x.id===h.pointId)){ h.stops=ns; h.stopsV=2; delete h.path; delete h.pathFail; changed=true; } });
+  if(changed){ save(); built=""; }
+}
+function renderRecyclePick(){
+  const st=S.setup, card=$("recyclecard"); if(!card) return; card.hidden=!st; if(!st) return;
+  const today=new Date().toDateString();
+  $("recyclelist").innerHTML=st.homes.map(h=>{
+    const pin=(S.recycle||{})[h.routeId], sc=mateScore[h.routeId]||{}, D0=dowOf(h), L0=D0&&D0.id?D0:null;
+    const ids=new Set(Object.keys(sc)); if(pin) ids.add(pin); if(L0) ids.add(L0.id);
+    cars.forEach(c=>{ if(c.type==="recycle"&&c.t&&new Date(c.t).toDateString()===today) ids.add(c.id); });
+    const rows=[...ids].map(id=>{ const c=getCar(id)||{id,plate:(sc[id]||{}).plate||(L0&&L0.id===id?L0.plate:id)}; const e=sc[id]||{min:0,home:false};
+        const H2=hist[h.routeId]; return {id,c,e,v:(H2?followScore(H2.gv,(H2.cars[id]||{}).v)*10:0)+e.min/10+(L0&&L0.id===id?50:0)}; })
+      .filter(x=>!x.c.type||x.c.type==="recycle").sort((a,b)=>b.v-a.v||String(a.c.plate).localeCompare(String(b.c.plate))).slice(0,14);
+    const H=hist[h.routeId];
+    const info=x=>{ const bits=[];
+      const fn=H?followScore(H.gv,(H.cars[x.id]||{}).v):0; if(fn>0) bits.push("今天跟著垃圾車收了 "+fn+" 站");
+      if(L0&&L0.id===x.id) bits.push(((L0.src==="today")?"今天":"上個星期"+DOW_NAME[todayIdx()])+"比對出來是您路線的回收車");
+      if(x.c.lat){ const near=nearStop(h,x.c); bits.push(isOffline(x.c)?"離線（最後 "+clockOf(x.c.t)+"）":(near?"現在在「"+near+"」附近":"現在不在您的路線附近")); }
+      return bits.join("・")||"今天還沒跑您的路線"; };
+    const pa=pickMate(h,true);
+    const autoTxt=pa.car?"現在認出的是 "+esc(pa.car.plate)+(pa.how==="official"?"（清潔隊班表）":pa.how==="today"?"（今天跟著垃圾車收）":pa.how==="learn"?"（前幾週同一天的行車紀錄）":"")
+      :(["todaynone","downone","offnone"].includes(pa.how)?"星期"+DOW_NAME[todayIdx()]+"這條路線沒有回收車"+(pa.how==="offnone"?"（清潔隊班表）":"")
+      :(pa.how==="official"?"清潔隊班表是 "+esc(pa.plate)+"，今天還沒出車":"還沒認出來（比對前幾週同一天的行車紀錄：跟著垃圾車收四成以上站數的那台）"));
+    return `<div><p class="hint" style="margin:0 0 .4rem"><b>${esc(h.routeName)}</b></p><div class="stoplist">
+      <button class="stopbtn" data-rpick="" data-route="${h.routeId}" aria-pressed="${!pin}"><span class="tick">${!pin?"✓":""}</span><span class="nm">自動判斷（建議）</span><span class="tm"></span><span class="meta">${autoTxt}</span></button>
+      ${rows.map(x=>`<button class="stopbtn" data-rpick="${esc(x.id)}" data-route="${h.routeId}" aria-pressed="${pin===x.id}"><span class="tick">${pin===x.id?"✓":""}</span><span class="nm">回收車 ${esc(x.c.plate||x.id)}</span><span class="tm"></span><span class="meta">${esc(info(x))}</span></button>`).join("")}
+    </div></div>`;
+  }).join("")||'<p class="hint">還沒有設定路線。</p>';
+}
+$("recyclelist").addEventListener("click",e=>{ const b=e.target.closest("[data-rpick]"); if(!b) return;
+  S.recycle=S.recycle||{}; const rid=b.dataset.route, id=b.dataset.rpick;
+  if(id) S.recycle[rid]=id; else delete S.recycle[rid];
+  save(); renderRecyclePick(); render(); toast(id?"好，這條路線的回收車就是 "+b.querySelector(".nm").textContent.replace("回收車 ",""):"改回自動判斷"); });
+function renderCurrent(){
+  const st=S.setup; $("current").hidden=!st;
+  if(!st) return;
+  if(st.label&&st.label!=="我現在的位置"&&!$("addr").value) $("addr").value=st.label;
+  $("currentlist").innerHTML=st.homes.map(h=>`<div class="stopbtn" style="grid-template-columns:1fr auto"><span class="nm">${esc(shortName(h.pointName))}</span><span class="tm num">${esc(h.time)}</span><span class="meta" style="grid-column:1/-1">${esc(h.week)}・${esc(h.routeName)}・全線 ${h.stops.length} 站</span></div>`).join("");
+}
+
+// ---------- 即時狀態 ----------
+let status=[], cars=[], lastOK=0, lastErr="";
+// ---------- 離線 ----------
+// 資料平台的車平常約 20 秒回報一次位置；超過 3 分鐘沒回報就算「離線」，顯示最後的位置
+const OFFLINE_MS=3*60000;
+let lastSeen={}, routeMem={}, mateScore={}; // lastSeen：車輛代號 → 最後位置；routeMem：路線 → {car}（今天負責的垃圾車）；mateScore：路線 → 回收車 → 今天沿著路線走了幾分鐘
+try{const m=JSON.parse(localStorage.getItem("ljt-lastpos")||"null"); if(m&&m.day===new Date().toDateString()){lastSeen=m.cars||{};routeMem=m.routes||{};mateScore=m.score||{};}}catch(e){}
+function saveSeen(){try{localStorage.setItem("ljt-lastpos",JSON.stringify({day:new Date().toDateString(),cars:lastSeen,routes:routeMem,score:mateScore}));}catch(e){}}
+
+// ---------- 回收車 ----------
+// 資料平台的路線資料只登記垃圾車，沒有說哪台回收車跑哪條路線。所以：
+// 1. 使用者自己指定（S.recycle[路線] = 車輛代號）最優先。
+// 2. 自動判斷：每台回收車今天「沿著我的路線」（離路線 60 公尺內）走了幾分鐘、有沒有經過我家這站。
+//    至少沿著路線走 4 分鐘才算；只是停在垃圾車旁邊、或路過一下的，不算。
+// 3. 即時記分（scoreRecycle）只在完全查不到歷史紀錄時當備案，不再「學起來」。學起來的是歷史比對，而且分星期幾記（S.learnDow），見 updateHistory。
+const MATE_MIN=4, LEARN_MIN=15, ONROUTE_M=60;
+function routeLine(h){ return h.path&&h.path.pts&&h.path.pts.length>1?h.path.pts:h.stops.filter(s=>typeof s.lat==="number").map(s=>[s.lat,s.lng]); }
+function distToLine(pts,c){ // 點到折線的最短距離（公尺）
+  let best=1e9; const g={lat:c.lat,lng:c.lng};
+  for(let i=1;i<pts.length;i++){ const a=xy(g,pts[i-1][0],pts[i-1][1]), b=xy(g,pts[i][0],pts[i][1]), dx=b[0]-a[0], dy=b[1]-a[1], L2=dx*dx+dy*dy;
+    const t=L2?Math.max(0,Math.min(1,-(a[0]*dx+a[1]*dy)/L2)):0; const d=Math.hypot(a[0]+t*dx,a[1]+t*dy); if(d<best) best=d; }
+  return best;
+}
+function routeWindow(h){ const ts=h.stops.map(s=>toMin(s.time)).filter(x=>x>0); return ts.length?[Math.min(...ts)-30,Math.max(...ts)+60]:[0,1440]; }
+function scoreRecycle(){ // 每次查完資料呼叫：幫每台回收車記分
+  const st=S.setup; if(!st) return; const nm=nowMin(), today=new Date().toDateString();
+  st.homes.forEach(h=>{
+    if(!(h.period||[]).includes(todayIdx())) return;
+    const [a,b]=routeWindow(h); if(nm<a||nm>b) return;
+    const line=routeLine(h), home=h.stops.find(s=>s.id===h.pointId);
+    const sc=mateScore[h.routeId]||(mateScore[h.routeId]={});
+    cars.forEach(c=>{ if(c.type!=="recycle"||isOffline(c)||!c.lat) return;
+      const e=sc[c.id]||(sc[c.id]={min:0,home:false,last:0,plate:c.plate});
+      if(e.last===c.t) return; // 沒有新位置
+      const dt=e.last?Math.max(0,Math.min(2,(c.t-e.last)/60000)):0; e.last=c.t; e.plate=c.plate;
+      if(distToLine(line,c)<=ONROUTE_M) e.min+=dt;
+      if(home&&typeof home.lat==="number"&&passDist({lat:home.lat,lng:home.lng},c)<=ONROUTE_M) e.home=true;
+    });
+  });
+}
+function bestRecycle(h){ const sc=mateScore[h.routeId]||{}; let best=null;
+  for(const id in sc){ const e=sc[id], v=e.min+(e.home?10:0); if(e.min>=MATE_MIN&&(!best||v>best.v)) best={id,e,v}; }
+  return best; }
+// ---------- 回收車：用歷史軌跡比對「跟著垃圾車一站一站收」 ----------
+// GetHistoryTrack（Cust_ID、Car_Unicode、StartTime、EndTime）可以拿到每台車的軌跡，今天和之前的日子都可以。
+// 比對方法：這條路線的每一站，回收車有沒有經過（60 公尺內），而且跟垃圾車經過那站的時間差 15 分鐘以內。
+// 「跟著垃圾車收的站數」最多、至少 3 站、而且明顯比第二名多的那台，就是這條路線的回收車。
+// 2026-11-02 用一條 17 站的路線實測：連續三個收運日都只有同一台回收車符合（10、10、8 站），其他車最多 2 站。
+const FOLLOW_MS=15*60000, FOLLOW_MIN=3, VISIT_M=60;
+let hist={}, histBusy=false, histState=""; // hist：路線 → {gTo, gv:[每站垃圾車經過時間], cars:{車:{to, v:[...], plate}}, at, win}
+try{const m=JSON.parse(localStorage.getItem("ljt-hist")||"null"); if(m&&m.day===new Date().toDateString()) hist=m.routes||{};}catch(e){}
+function saveHist(){try{localStorage.setItem("ljt-hist",JSON.stringify({day:new Date().toDateString(),routes:hist}));}catch(e){}}
+const p2=n=>String(n).padStart(2,"0");
+const fmtDT=d=>`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+async function trackOf(cust,carId,from,to){
+  const r=await api({Cust_ID:String(cust),Car_Unicode:String(carId),StartTime:fmtDT(from),EndTime:fmtDT(to),MethodName:"GetHistoryTrack"});
+  return r.filter(p=>p.Log_GISX&&p.Log_GISY).map(p=>({lat:p.Log_GISY/1e6,lng:p.Log_GISX/1e6,t:logTime(p.Log_DTime)}));
+}
+function markVisits(stops,tr,v){ stops.forEach((s,i)=>{ if(v[i]||typeof s.lat!=="number") return;
+  for(const p of tr){ if(ptDist({lat:s.lat,lng:s.lng},p)<=VISIT_M){ v[i]=p.t; break; } } }); }
+function followScore(gv,v){ let n=0; (v||[]).forEach((t,i)=>{ if(t&&gv[i]&&Math.abs(t-gv[i])<=FOLLOW_MS) n++; }); return n; }
+const FOLLOW_FRAC=0.4, NONE_MIN_STOPS=6;
+function judgeDay(gv,carsV){ // 一天的比對結果：{gn:垃圾車經過幾站, win:贏家或 null, best:第一名跟了幾站, none:確定沒有回收車跟}
+  const gn=(gv||[]).filter(Boolean).length;
+  const arr=Object.entries(carsV||{}).map(([id,o])=>({id,plate:o.plate,n:followScore(gv,o.v)})).sort((a,b)=>b.n-a.n);
+  const w=arr[0], best=w?w.n:0, s2=arr[1]?arr[1].n:0, need=Math.max(FOLLOW_MIN,Math.ceil(gn*FOLLOW_FRAC));
+  let win=null;
+  if(w&&w.n>=need&&(w.n>=s2*2||w.n-s2>=3)) win=Object.assign({second:s2},w); // 要明顯贏過第二名
+  // 垃圾車已經收了好幾站，卻沒有一台跟到四成：這條路線今天沒有回收車（只是剛好經過幾站的車不算）
+  const none=!win&&gn>=NONE_MIN_STOPS&&best<need;
+  return {gn,win,best,none};
+}
+function winnerOf(gv,carsV){ return judgeDay(gv,carsV).win; }
+function dayWindow(h,date){ const [a,b]=routeWindow(h); const d0=new Date(date); d0.setHours(0,0,0,0); return [new Date(d0.getTime()+a*60000),new Date(d0.getTime()+b*60000)]; }
+function recycleIds(){ const ids=new Set(); cars.forEach(c=>{if(c.type==="recycle")ids.add(c.id);}); Object.keys(lastSeen).forEach(id=>{if(lastSeen[id].type==="recycle")ids.add(id);}); return [...ids]; }
+function lastReport(id){ const c=cars.find(x=>x.id===id)||lastSeen[id]; return c&&c.t||0; }
+async function analyzeDay(h,gid,date,ids){ // 某一天：垃圾車和每台回收車的經過時間 → 贏家
+  const [a,b]=dayWindow(h,date); const gv=[]; markVisits(h.stops,await trackOf(S.setup.cust,gid,a,b),gv);
+  if(gv.filter(Boolean).length<3) return {win:null,gv,carsV:{},ran:false}; // 垃圾車那天沒跑這條路線
+  const carsV={};
+  for(const id of ids){ if(lastReport(id)&&lastReport(id)<a.getTime()) continue; // 那天之前就沒再動過的車不用查
+    const v=[]; markVisits(h.stops,await trackOf(S.setup.cust,id,a,b),v); carsV[id]={v,plate:(cars.find(c=>c.id===id)||lastSeen[id]||{}).plate||id}; }
+  const j=judgeDay(gv,carsV); return Object.assign({gv,carsV,ran:true},j);
+}
+async function updateHistory(force){
+  const st=S.setup; if(!st||histBusy||!cars.length) return; histBusy=true; histState="checking";
+  const todayS=new Date().toDateString();
+  try{
+    const ids=recycleIds();
+    for(const h of st.homes){
+      const gid=h.carUnicode||(routeMem[h.routeId]||{}).car; if(!gid) continue;
+      // 1. 今天：從出車到現在，之後每 4 分鐘只抓新的那一段
+      if((h.period||[]).includes(todayIdx())){
+        const [a,b]=dayWindow(h,new Date()), now=new Date();
+        if(now>a){ const H=hist[h.routeId]||(hist[h.routeId]={gTo:0,gv:[],cars:{}});
+          if(force||!H.at||Date.now()-H.at>4*60000){
+            const end=now<b?now:b, gFrom=new Date(Math.max(a.getTime(),H.gTo||0));
+            if(end>gFrom){ markVisits(h.stops,await trackOf(st.cust,gid,gFrom,end),H.gv); H.gTo=end.getTime(); }
+            for(const id of ids){ if(lastReport(id)&&lastReport(id)<a.getTime()) continue;
+              const o=H.cars[id]||(H.cars[id]={to:0,v:[],plate:(cars.find(c=>c.id===id)||lastSeen[id]||{}).plate||id});
+              const from=new Date(Math.max(a.getTime(),o.to||0)); if(end<=from) continue;
+              markVisits(h.stops,await trackOf(st.cust,id,from,end),o.v); o.to=end.getTime(); }
+            H.at=Date.now(); }
+          const J=judgeDay(H.gv,H.cars); H.win=J.win||null; H.none=J.none; H.gn=J.gn;
+          if(H.win||H.none) setDow(h.routeId,todayIdx(),H.win?{id:H.win.id,plate:H.win.plate,n:H.win.n,day:todayS,src:"today"}:{none:true,n:J.best,day:todayS,src:"today"});
+        }
+      }
+      // 2. 之前「同一個星期幾」：回收車常常是一週裡某幾天才跟（例如一、五、六是 KEC-2128，四是另一台，二沒有），
+      //    所以只看前幾週的同一天。一天查一次，找最近 2 個有收的同一天。
+      S.learnChecked=S.learnChecked||{};
+      const dw=todayIdx(), ck=todayS+"|dow";
+      if((h.period||[]).includes(dw)&&S.learnChecked[h.routeId]!==ck){
+        const res=[];
+        for(let wk=1;wk<=4&&res.length<2;wk++){
+          const d=new Date(); d.setDate(d.getDate()-7*wk);
+          const r=await analyzeDay(h,gid,d,ids); if(r.ran) res.push(Object.assign({day:d.toDateString()},r));
+        }
+        const D=((S.learnDow||{})[h.routeId]||{})[dw];
+        if(res.length&&!(D&&D.src==="today"&&D.day===todayS)){ const r0=res[0], r1=res[1];
+          const same=r1&&((r0.win&&r1.win&&r1.win.id===r0.win.id)||(r0.none&&r1.none));
+          if(r0.win) setDow(h.routeId,dw,{id:r0.win.id,plate:r0.win.plate,n:r0.win.n,day:r0.day,src:"past",both:!!same});
+          else if(r0.none) setDow(h.routeId,dw,{none:true,n:r0.best,day:r0.day,src:"past",both:!!same});
+        }
+        S.learnChecked[h.routeId]=ck; save();
+      }
+    }
+    saveHist(); histState="done";
+  }catch(e){ histState="error"; } finally { histBusy=false; render(); }
+}
+function setDow(rid,dw,v){ S.learnDow=S.learnDow||{}; const R=S.learnDow[rid]||(S.learnDow[rid]={}); const o=R[dw];
+  if(!o||o.id!==v.id||!!o.none!==!!v.none||o.day!==v.day||o.n!==v.n){ R[dw]=v; save(); } }
+function dowOf(h){ const D=((S.learnDow||{})[h.routeId]||{})[todayIdx()]||null; const ep=schedEpoch();
+  if(D&&ep&&D.day&&dayStr(new Date(D.day))<ep) return null; // 換班以前的紀錄
+  return D; }
+function pickMate(h,skipPin){ // 回傳 {car, how, n, day}
+  const pin=skipPin?null:(S.recycle||{})[h.routeId];
+  if(pin){ return {car:getCar(pin),how:"pin"}; }
+  if(!(h.period||[]).includes(todayIdx())) return {car:null,how:"none"};
+  const H=hist[h.routeId];
+  const O=officialFor(h);
+  if(H&&H.win){ const c=getCar(H.win.id); if(c) return {car:c,how:"today",n:H.win.n,off:O}; }    // 今天的歷史軌跡比對（實際情形優先）
+  if(H&&H.none) return {car:null,how:"todaynone",n:H.gn,off:O};                                   // 今天垃圾車收了好幾站都沒有回收車跟
+  if(O&&O.none) return {car:null,how:"offnone"};                                                   // 清潔隊班表：今天這條路線沒有回收車
+  if(O&&O.plate){ const c=carByPlate(O.plate); return {car:c,how:"official",plate:O.plate,days:O.days}; } // 清潔隊班表上的那台
+  const D=dowOf(h);
+  if(D&&D.none) return {car:null,how:"downone",day:D.day,both:D.both};                           // 前幾週的同一天沒有回收車
+  if(D&&D.id){ const c=getCar(D.id); if(c) return {car:c,how:"learn",n:D.n,day:D.day,both:D.both}; } // 前幾週的同一天是這台
+  if(!D){ const b=bestRecycle(h); if(b){ const c=getCar(b.id); if(c) return {car:c,how:"auto",min:Math.round(b.e.min),home:b.e.home}; } } // 完全沒有紀錄時的備案
+  return {car:null,how:"none"};
+}
+const DOW_NAME="一二三四五六日";
+function mateNone(r){ return r&&!r.mate&&(r.mateHow==="todaynone"||r.mateHow==="downone"||r.mateHow==="offnone"); }
+const dayList=ds=>(ds||[]).map(i=>DOW_NAME[i]).join("、");
+const isOffline=c=>!!c&&(!!c.missing||!c.t||Date.now()-c.t>OFFLINE_MS); // 從清單消失也算離線
+function getCar(id){ // 先找這次查到的；查不到（車子整台從清單消失）就用記住的最後位置
+  if(id===null||id===undefined) return null; id=String(id);
+  const c=cars.find(x=>x.id===id); if(c) return c;
+  const m=lastSeen[id]; return m?Object.assign({id,missing:true},m):null;
+}
+function agoText(c){const m=Math.max(1,Math.round((Date.now()-(c.t||0))/60000)); return m>=60?Math.floor(m/60)+" 小時 "+(m%60)+" 分鐘":m+" 分鐘";}
+function clockOf(t){return t?new Date(t).toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false}):"不明";}
+function nearStop(h,c){let best=null,bd=1e9; if(!h||!c||!c.lat) return "";
+  h.stops.forEach(s=>{if(typeof s.lat!=="number")return;const d=ptDist({lat:s.lat,lng:s.lng},c);if(d<bd){bd=d;best=s;}});
+  return best&&bd<600?shortName(best.name):"";}
+async function refresh(){
+  const st=S.setup; if(!st) return;
+  try{
+    const [a,b]=await Promise.all([
+      api({Cust_ID:st.cust,MethodName:"GetRemovalStatus"}),
+      api({Cust_ID:Number(st.cust),Team_ID:Number(st.team),MethodName:"GetCarStatusGarbage"})
+    ]);
+    const old={}; cars.forEach(c=>old[c.id]=c);
+    status=a; cars=b.map(c=>{const n={id:String(c.Car_Unicode),type:typeOf(c.Car_Style),plate:c.Car_Number,lat:c.Log_GISY,lng:c.Log_GISX,dir:c.Log_Direct,t:logTime(c.Log_DTime)};
+      const o=old[n.id]; if(o) n.prev=(o.t<n.t)?{lat:o.lat,lng:o.lng,t:o.t}:o.prev; return n;});
+    cars.forEach(c=>{ if(!c.lat||!c.lng||!c.t) return; const m=lastSeen[c.id];
+      if(!m||m.t<c.t) lastSeen[c.id]={lat:c.lat,lng:c.lng,t:c.t,type:c.type,plate:c.plate,dir:c.dir}; });
+    scoreRecycle();
+    lastOK=Date.now(); lastErr=""; showErr("");
+    syncSchedule(false); // 超過 6 小時或換日就重新核對班表
+    updateHistory(false); // 歷史軌跡比對回收車（今天每 4 分鐘補抓新的一段；之前的收運日一天查一次）
+  }catch(e){ lastErr=e.message; showErr("暫時連不上垃圾車的資料（"+e.message+"）。會自動再試。"); }
+  render(); saveSeen();
+}
+
+function routeState(h){
+  const stops=h.stops, hi=Math.max(0,stops.findIndex(s=>s.id===h.pointId)), homeT=toMin((stops[hi]||{}).time), now=nowMin();
+  const runsToday=(h.period||[]).includes(todayIdx());
+  const s=status.find(x=>x.routeId===h.routeId);
+  const mem=routeMem[h.routeId]||(routeMem[h.routeId]={});
+  let carId=s&&s.responsibleCar!==undefined&&s.responsibleCar!==null?String(s.responsibleCar):null;
+  if(carId) mem.car=carId; else carId=mem.car||null; // 狀態查不到時，用今天記住的那台車
+  const car=getCar(carId);
+  const winStart=dayWindow(h,new Date())[0].getTime();
+  const notOut=c=>!!c&&!c.missing&&(!c.t||c.t<winStart); // 今天還沒出車（停在場裡不回報），不算離線
+  if(car){ car.notOut=notOut(car); car.offline=isOffline(car)&&!car.notOut; }
+  const pm=pickMate(h); const mate=pm.car;
+  if(mate){ mate.notOut=notOut(mate); mate.offline=isOffline(mate)&&!mate.notOut; }
+  const base={h,hi,homeT,car,mate,mateHow:pm.how,mateMin:pm.min,mateHome:pm.home,mateN:pm.n,mateDay:pm.day,mateBoth:pm.both,mateOff:pm.off,matePlate:pm.plate,mateDays:pm.days,runsToday,mi:-1};
+  if(mate) base.mi=onRoute(h.stops,mate,s&&s.removealPointToArrivalId>0?stops.findIndex(x=>x.id===s.removealPointToArrivalId):-1);
+  if(!runsToday) return Object.assign(base,{phase:"off"});
+  if(s&&s.reachMinutes>=0&&s.removealPointToArrivalId>0){
+    const ni=stops.findIndex(x=>x.id===s.removealPointToArrivalId);
+    if(ni>=0&&ni<=hi){
+      const away=hi-ni+1, eta=Math.max(0,s.reachMinutes+Math.max(0,homeT-toMin(stops[ni].time)));
+      if(ni===hi&&s.reachDistance>=0&&s.reachDistance<=80) return Object.assign(base,{phase:"here",ni,away:0,eta:0,meters:s.reachDistance});
+      return Object.assign(base,{phase:"coming",ni,away,eta,meters:s.reachDistance});
+    }
+    if(ni>hi) return Object.assign(base,{phase:ni===hi+1?"justgone":"gone",ni});
+    return Object.assign(base,{phase:"far",eta:s.reachMinutes});
+  }
+  if(now<homeT+15) return Object.assign(base,{phase:"wait"});
+  return Object.assign(base,{phase:"done"});
+}
+// 用 GPS 判斷一台車在路線表的哪一段：找最近的一段，回傳它正要去的那一站
+function onRoute(stops,c,near){
+  if(!c||!c.lat||!stops.length||typeof stops[0].lat!=="number") return -1;
+  let best=-1,bd=1e9;
+  for(let i=0;i<stops.length-1;i++){
+    const g={lat:c.lat,lng:c.lng}, a=xy(g,stops[i].lat,stops[i].lng), b=xy(g,stops[i+1].lat,stops[i+1].lng);
+    const dx=b[0]-a[0],dy=b[1]-a[1],L2=dx*dx+dy*dy, t=L2?Math.max(0,Math.min(1,-(a[0]*dx+a[1]*dy)/L2)):0;
+    const d=Math.hypot(a[0]+t*dx,a[1]+t*dy)+(near>=0?25*Math.abs(i+1-near):0);
+    if(d<bd){bd=d;best=t<.15?i:i+1;}
+  }
+  return bd-(near>=0?25*Math.abs(best-near):0)<=400?best:-1;
+}
+function bigText(r){
+  switch(r.phase){
+    case "off": return ["今天不收","這條路線："+r.h.week];
+    case "wait": return ["還沒出發","表定 "+clock(r.homeT)+" 到您家"];
+    case "coming": return [r.away===1?"下一站就是您家":"還有 "+r.away+" 站","大約 "+Math.max(1,Math.round(r.eta))+" 分鐘後到"];
+    case "here": return ["到了！","就在您家這站，快拿出去"];
+    case "justgone": return ["剛開走","剛離開您家這站，快一點還追得上"];
+    case "gone": return ["已經開走了","今天錯過了"];
+    case "far": return ["正在路上","表定 "+clock(r.homeT)+" 到您家"];
+    default: return ["今天收完了","表定 "+clock(r.homeT)];
+  }
+}
+function mateNote(r){
+  if(r.mateHow==="pin"){ const pin=(S.recycle||{})[r.h.routeId], H=hist[r.h.routeId];
+    if(H&&H.win&&H.win.id!==pin&&followScore(H.gv,(H.cars[pin]||{}).v)<FOLLOW_MIN) return "您指定的這台今天沒跟垃圾車收；"+H.win.plate+" 今天跟著垃圾車收了 "+H.win.n+" 站，可能換車了，可以到「改地址」改選";
+    return r.mate?"您指定的回收車":"您指定的回收車今天還沒出現"; }
+  if(r.mateHow==="today"){ const O=r.mateOff; let x="今天跟著垃圾車收了 "+r.mateN+" 站";
+    if(O&&O.plate&&r.mate&&plateKey(O.plate)!==plateKey(r.mate.plate)) x+="（清潔隊班表寫 "+O.plate+"，今天實際是這台）";
+    else if(O&&O.none) x+="（清潔隊班表寫今天沒有回收車，但今天有這台跟著收）";
+    return x; }
+  if(r.mateHow==="official") return "清潔隊班表：星期"+dayList(r.mateDays)+"是 "+r.matePlate+(r.mate?(r.mate.notOut?"・今天還沒出車":""):"・今天還沒出車");
+  if(r.mateHow==="offnone") return "星期"+DOW_NAME[todayIdx()]+"這條路線沒有回收車（清潔隊班表）";
+  if(r.mateHow==="learn"){ const d=r.mateDay?new Date(r.mateDay):null, ds=d&&!isNaN(d)?(d.getMonth()+1)+"/"+d.getDate():"";
+    return (r.mateBoth?"前兩個星期"+DOW_NAME[todayIdx()]+"都是這台":"上個星期"+DOW_NAME[todayIdx()]+(ds?"（"+ds+"）":"")+"是這台")+"跟著垃圾車收"+(r.mate&&r.mate.notOut?"・今天還沒出車":""); }
+  if(r.mateHow==="todaynone") return "今天這條路線沒有回收車（垃圾車已經收了 "+r.mateN+" 站，都沒有回收車跟著收）"+(r.mateOff&&r.mateOff.plate?"；清潔隊班表寫 "+r.mateOff.plate+"，可能今天換班":"");
+  if(r.mateHow==="downone") return "星期"+DOW_NAME[todayIdx()]+"這條路線沒有回收車（"+(r.mateBoth?"前兩個星期"+DOW_NAME[todayIdx()]+"都":"上個星期"+DOW_NAME[todayIdx()])+"沒有回收車跟著垃圾車收）";
+  if(r.mateHow==="auto") return "今天沿著您的路線走了 "+r.mateMin+" 分鐘"+(r.mateHome?"，經過您家":"");
+  if(histBusy) return "正在查歷史軌跡，認出您路線的回收車…";
+  return r.runsToday?"還沒認出這條路線的回收車":"今天不收";
+}
+function chip(c,type,note,k,h){
+  if(c&&c.notOut&&!c.offline){ return `<div class="chip ${c.type}" role="button" tabindex="0" data-carid="${esc(c.id)}" data-k="${k}"><svg viewBox="0 0 124 76" style="color:var(--${c.type})"><use href="#t-${c.type}"/></svg><div><span class="badge">${c.type==="recycle"?"回收車":"垃圾車"}</span><span class="plate num">${esc(c.plate)}</span><span class="note">${note||""}</span><span class="note">今天還沒出車</span></div></div>`; }
+  if(!c&&type==="recycle") return `<div class="chip none" role="button" tabindex="0" data-pickrecycle="1"><svg viewBox="0 0 124 76" style="color:var(--line)"><use href="#t-recycle"/></svg><div><span class="badge" style="background:var(--line);color:var(--fg)">回收</span><span class="note">${note}</span><span class="note tapnote">點這裡自己選</span></div></div>`;
+  if(!c) return `<div class="chip none"><svg viewBox="0 0 124 76" style="color:var(--line)"><use href="#t-${type}"/></svg><div><span class="badge" style="background:var(--line);color:var(--fg)">${type==="recycle"?"回收":"垃圾"}</span><span class="note">${note}</span></div></div>`;
+  if(c.offline){ const near=nearStop(h,c);
+    return `<div class="chip ${c.type} offline" role="button" tabindex="0" data-carid="${esc(c.id)}" data-k="${k}" aria-label="在地圖上看離線的${c.type==="recycle"?"回收車":"垃圾車"} ${esc(c.plate)} 最後的位置"><svg viewBox="0 0 124 76" style="color:var(--${c.type})"><use href="#t-${c.type}"/></svg><div><span class="badge">${c.type==="recycle"?"回收車":"垃圾車"}</span><span class="offbadge">離線</span><span class="plate num">${esc(c.plate)}</span><span class="note warnline">訊號中斷 ${agoText(c)}</span><span class="note">最後在${near?"「"+esc(near)+"」附近":"地圖上的位置"}・${clockOf(c.t)}</span><span class="note tapnote">點一下看最後位置</span></div></div>`; }
+  const ago=Math.round((Date.now()-c.t)/60000);
+  return `<div class="chip ${c.type}" role="button" tabindex="0" data-carid="${esc(c.id)}" data-k="${k}" aria-label="在地圖上看${c.type==="recycle"?"回收車":"垃圾車"} ${esc(c.plate)}"><svg viewBox="0 0 124 76" style="color:var(--${c.type})"><use href="#t-${c.type}"/></svg><div><span class="badge">${c.type==="recycle"?"回收車":"垃圾車"}</span><span class="plate num">${esc(c.plate)}</span><span class="note">${note||""}${ago>=3?`<span class="warnline">訊號 ${ago} 分鐘沒更新</span>`:""}</span><span class="note tapnote">點一下在地圖上看</span></div></div>`;
+}
+const expanded={}, selStop={};
+function strip(r,k){
+  const st=r.h.stops, hi=r.hi, ni=(r.ni!==undefined&&r.ni>=0)?r.ni:-1;
+  const rows=[]; const add=i=>{if(i>=0&&i<st.length&&!rows.includes(i))rows.push(i)};
+  if(expanded[k]){ for(let i=0;i<st.length;i++) add(i); }
+  else if(ni>=0&&ni<=hi){ add(ni-1); add(ni); add(ni+1); add(ni+2); for(let i=hi-2;i<=hi+1;i++) add(i); add(r.mi); }
+  else { for(let i=hi-3;i<=hi+1;i++) add(i); }
+  rows.sort((a,b)=>a-b);
+  let html="",prev=null;
+  for(const i of rows){
+    if(prev!==null&&i>prev+1) html+=`<li class="gap" data-gap="${k}" role="button" tabindex="0"><span class="rail"><span class="node"></span></span><div class="sname">⋮ 中間還有 ${i-prev-1} 站，點一下展開</div><span></span></li>`;
+    const passed=ni>=0?i<Math.min(ni,r.mi>=0?r.mi:ni):false;
+    let marks="";
+    const mk=c=>`<span class="mk ${c.type==="recycle"?"r":"g"}"><svg class="mkic" viewBox="0 0 124 76"><use href="#t-${c.type}"/></svg>${c.type==="recycle"?"回收車":"垃圾車"}${c.offline?"離線前":""}正往這站開</span>`;
+    if(i===ni&&r.car) marks+=mk(r.car);
+    if(i===r.mi&&r.mate) marks+=mk(r.mate);
+    html+=`<li data-k="${k}" data-i="${i}" role="button" tabindex="0" class="${i===hi?"home":""} ${passed&&i!==hi?"passed":""} ${selStop[k]===i?"sel":""}"><span class="rail"><span class="node"></span></span><div class="sname"><span class="sno num">${i+1}</span>${i===hi?'<span class="mk h">我家</span>':""}${esc(shortName(st[i].name))}${marks?"<br>"+marks:""}</div><span class="stime num">${esc(st[i].time)}</span></li>`;
+    prev=i;
+  }
+  if(expanded[k]) html+=`<li class="gap" data-gap="${k}" role="button" tabindex="0"><span class="rail"><span class="node"></span></span><div class="sname">收起來</div><span></span></li>`;
+  return html;
+}
+
+// ---------- 地圖 ----------
+const maps={}; let built="";
+const sig=()=>S.setup?S.setup.saved+"|"+S.setup.homes.map(h=>h.pointId).join(","):"";
+const hasCoords=h=>h.stops.every(s=>typeof s.lat==="number"&&s.lat);
+const dark=()=>window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches;
+async function ensureCoords(){ // 舊設定沒有存站的位置，補抓一次
+  const st=S.setup; if(!st||st.homes.every(hasCoords)) return;
+  try{
+    const all=await api({Cust_ID:st.cust,Time:0,RemovalType:0,GISX:st.lng,GISY:st.lat,Range:12000,MethodName:"GetRecommandPoint"});
+    const byId={}; all.forEach(x=>byId[x.Point_ID]=x);
+    st.homes.forEach(h=>h.stops.forEach(s=>{const x=byId[s.id]; if(x){s.lat=x.GISY;s.lng=x.GISX;}}));
+    save(); built="";
+  }catch(e){}
+}
+// 資料平台的「規劃路線」：GetRoutePlanDetail 回傳車子依序要走的道路點（座標乘以 1,000,000）
+// 規劃路線不一定完整：有的站不在路線上、有的站經過好幾次、點和點之間有時隔 100～350 公尺。所以：
+// 1. 每一站找出路線「經過」它的每一次（60 公尺內）
+// 2. 用動態規劃挑出「照站的順序、能對上最多站」的組合（同樣多站就挑距離最近的）
+// 3. 只留第一站到最後一站之間（剪掉出車、回車）；對不上的站另外畫灰色點線連到路線上
+// 4. 點跟點之間的缺口，用 OSRM（OpenStreetMap 道路）補成實際道路（snapToRoads）
+async function fetchPath(h){
+  const raw=await api({Route_ID:h.routeId,MethodName:"GetRoutePlanDetail"});
+  const pts=[]; let lp=null;
+  raw.forEach(p=>{const q=[Math.round(p.Route_GISY)/1e6,Math.round(p.Route_GISX)/1e6];
+    if(!q[0]||!q[1]) return; if(lp&&ptDist({lat:lp[0],lng:lp[1]},{lat:q[0],lng:q[1]})<4) return; pts.push(q); lp=q;});
+  if(pts.length<2) return null;
+  const st=h.stops, N=st.length;
+  const cand=st.map(s=>{
+    if(typeof s.lat!=="number") return [];
+    const c=[]; let run=null;
+    for(let j=0;j<pts.length;j++){
+      const d=ptDist({lat:s.lat,lng:s.lng},{lat:pts[j][0],lng:pts[j][1]});
+      if(d<=60){ if(run&&j<=run.end+3){run.end=j; if(d<run.d){run.d=d;run.j=j;}} else {run={j,d,end:j}; c.push(run);} }
+    }
+    return c.map(r=>[r.j,r.d]);
+  });
+  const dp=[], from=[]; let bestEnd=null;
+  for(let i=0;i<N;i++){ dp[i]=[]; from[i]=[];
+    cand[i].forEach(([j,d],c)=>{
+      let best=1000-d, arg=null;
+      for(let i2=0;i2<i;i2++) cand[i2].forEach(([j2],c2)=>{ if(j2<=j&&dp[i2][c2]+1000-d>best){best=dp[i2][c2]+1000-d;arg=[i2,c2];} });
+      dp[i][c]=best; from[i][c]=arg;
+      if(!bestEnd||best>dp[bestEnd[0]][bestEnd[1]]) bestEnd=[i,c];
+    });
+  }
+  const anchor=new Array(N).fill(-1);
+  for(let x=bestEnd;x;x=from[x[0]][x[1]]) anchor[x[0]]=cand[x[0]][x[1]][0];
+  const matched=anchor.filter(a=>a>=0).length;
+  if(matched<Math.max(2,Math.ceil(N*0.4))) return null;
+  const firstA=Math.min(...anchor.filter(a=>a>=0)), lastA=Math.max(...anchor);
+  let road=pts.slice(firstA,lastA+1);
+  let si=anchor.map(a=>a>=0?a-firstA:-1);
+  // 對不上的站：接到前後兩個對上的站之間、路線上最近的點，畫點線
+  let conn=[];
+  for(let i=0;i<N;i++) if(si[i]<0){
+    let lo=0,hi2=road.length-1;
+    for(let x=i-1;x>=0;x--) if(si[x]>=0&&anchor[x]>=0){lo=si[x];break;}
+    for(let x=i+1;x<N;x++) if(anchor[x]>=0){hi2=si[x];break;}
+    let best=lo,bd=1e12; for(let j=lo;j<=hi2;j++){const d=ptDist({lat:st[i].lat,lng:st[i].lng},{lat:road[j][0],lng:road[j][1]});if(d<bd){bd=d;best=j;}}
+    si[i]=best; conn.push({i,to:best});
+  }
+  // 補道路
+  let snapped=false;
+  try{ const r=await snapToRoads(road,si); if(r){road=r.pts;si=r.si;snapped=r.ok;} }catch(e){}
+  conn.forEach(c=>c.to=si[c.i]);
+  // 對不上規劃路線的站：照垃圾車實際開過的 GPS 軌跡接上（查不到就用 OSRM 道路），接不上的才畫灰色點線
+  let fixed={};
+  if(conn.length){ try{ const f=await fixOffPath(h,road,si,conn); if(f){ road=f.pts; si=f.si; conn=f.conn; fixed=f.fixed; } }catch(e){} }
+  let len=0; for(let j=1;j<road.length;j++) len+=ptDist({lat:road[j-1][0],lng:road[j-1][1]},{lat:road[j][0],lng:road[j][1]});
+  return {pts:road,si,conn,len:Math.round(len),matched,offPath:conn.length,snapped,fixed};
+}
+// ---------- 對不上規劃路線的站：用實際開過的路接起來 ----------
+// 資料平台的規劃路線有時沒有經過某些站（例如有的路線，規劃路線在倒數第二站附近就結束，沒有開到最後一站）。
+// 1. 先查垃圾車最近一個「收完的」收運日的 GPS 軌跡（GetHistoryTrack），找出它從前一站附近 → 這幾站 → 下一站附近實際開的路
+// 2. 查不到軌跡、或軌跡看起來不對（太久、太遠）時，用 OSRM 道路把它們接起來
+// 3. 都不行才保留灰色點線
+let trackCache={};
+async function lastDayTrack(h){ // 最近一個收完的收運日，這條路線垃圾車的軌跡（依時間排序）
+  const gid=h.carUnicode||(routeMem[h.routeId]||{}).car; if(!gid||!S.setup) return null;
+  const key=h.routeId+"|"+gid; if(trackCache[key]!==undefined) return trackCache[key];
+  let out=null, tried=0;
+  for(let back=0;back<=10&&tried<3&&!out;back++){
+    const d=new Date(); d.setDate(d.getDate()-back);
+    if(!(h.period||[]).includes((d.getDay()+6)%7)) continue;
+    const [a,b]=dayWindow(h,d); if(b>new Date()) continue; // 今天還沒收完
+    tried++;
+    try{ const tr=(await trackOf(S.setup.cust,gid,a,b)).filter(p=>p.t).sort((x,y)=>x.t-y.t);
+      const v=[]; markVisits(h.stops,tr,v); if(v.filter(Boolean).length>=Math.max(3,h.stops.length*0.5)) out=tr; }catch(e){}
+  }
+  trackCache[key]=out; return out;
+}
+function nearFwd(tr,s,from,R){ // 從 from 往後，第一次進到 R 公尺內的那一趟裡最近的點
+  for(let k=Math.max(0,from);k<tr.length;k++){ let d=ptDist(s,tr[k]); if(d>R) continue;
+    let b=k,bd=d; for(let j=k+1;j<tr.length;j++){ d=ptDist(s,tr[j]); if(d>R) break; if(d<bd){bd=d;b=j;} } return b; }
+  return -1;
+}
+function nearBack(tr,s,from,R){ // 從 from 往前，最後一次進到 R 公尺內的那一趟裡最近的點
+  for(let k=Math.min(from,tr.length-1);k>=0;k--){ let d=ptDist(s,tr[k]); if(d>R) continue;
+    let b=k,bd=d; for(let j=k-1;j>=0;j--){ d=ptDist(s,tr[j]); if(d>R) break; if(d<bd){bd=d;b=j;} } return b; }
+  return -1;
+}
+const LL=q=>({lat:q[0],lng:q[1]});
+function pathLen(a){ let n=0; for(let j=1;j<a.length;j++) n+=ptDist(LL(a[j-1]),LL(a[j])); return n; }
+function gpsSeg(tr,h,pts,A,B,i0,i1){ // 回傳 {seg:[[lat,lng]...], at:{站:seg 裡的位置}}
+  const st=h.stops, ks=[]; let k=0;
+  for(let i=i0;i<=i1;i++){ const kk=nearFwd(tr,st[i],k,80); if(kk<0) return null; ks.push(kk); k=kk; }
+  let from=ks[0], to=ks[ks.length-1];
+  if(A!==null){ const a=nearBack(tr,LL(pts[A]),ks[0],40); if(a<0||tr[ks[0]].t-tr[a].t>20*60000) return null; from=a; }
+  if(B!==null){ const b=nearFwd(tr,LL(pts[B]),to,40); if(b<0||tr[b].t-tr[to].t>20*60000) return null; to=b; }
+  // 去掉停車時原地飄的點（5 公尺內），站的位置一定留
+  const raw=[], at={}; let last=null;
+  for(let j=from;j<=to;j++){ const q=[+tr[j].lat.toFixed(6),+tr[j].lng.toFixed(6)], si=ks.indexOf(j);
+    if(si<0&&last&&ptDist(LL(last),LL(q))<5) continue; if(si>=0) at[i0+si]=raw.length; raw.push(q); last=q; }
+  if(A!==null) raw[0]=pts[A]; if(B!==null) raw[raw.length-1]=pts[B];
+  const keepI=simplifyIdx(raw,Object.values(at).concat([0,raw.length-1]),4), seg=keepI.map(j=>raw[j]), at2={};
+  for(const i in at) at2[i]=keepI.indexOf(at[i]);
+  // 合理嗎：不能比「直線連起來」長太多（避免中間跑去別的地方）
+  const crow=[]; if(A!==null) crow.push(pts[A]); for(let i=i0;i<=i1;i++) crow.push([st[i].lat,st[i].lng]); if(B!==null) crow.push(pts[B]);
+  if(pathLen(seg)>Math.max(pathLen(crow)*3+300,800)) return null;
+  return {seg,at:at2};
+}
+async function osrmSeg(h,pts,A,B,i0,i1){
+  const st=h.stops, wp=[]; if(A!==null) wp.push(pts[A]); for(let i=i0;i<=i1;i++) wp.push([st[i].lat,st[i].lng]); if(B!==null) wp.push(pts[B]);
+  if(wp.length<2) return null;
+  const url="https://router.project-osrm.org/route/v1/driving/"+wp.map(p=>p[1].toFixed(6)+","+p[0].toFixed(6)).join(";")+"?overview=false&steps=true&geometries=geojson";
+  const j=await (await fetch(url)).json(); if(!j||j.code!=="Ok"||!j.routes||!j.routes[0]) return null;
+  const R=j.routes[0]; if(R.distance>Math.max(pathLen(wp)*3+300,800)) return null;
+  const seg=[], at={}; const off=A!==null?1:0;
+  R.legs.forEach((leg,x)=>{ leg.steps.forEach(stp=>stp.geometry.coordinates.forEach(c=>{const q=[+c[1].toFixed(6),+c[0].toFixed(6)];const l=seg[seg.length-1];if(!l||l[0]!==q[0]||l[1]!==q[1])seg.push(q);}));
+    const wi=x+1-off; if(wi>=0&&i0+wi<=i1) at[i0+wi]=seg.length-1; });
+  if(A===null) at[i0]=0; else seg[0]=pts[A];
+  if(B!==null) seg[seg.length-1]=pts[B];
+  return {seg,at};
+}
+async function fixOffPath(h,road,si,conn){
+  const N=h.stops.length, off=new Set(conn.map(c=>c.i)), runs=[];
+  [...off].sort((a,b)=>a-b).forEach(i=>{const r=runs[runs.length-1]; if(r&&r[1]===i-1) r[1]=i; else runs.push([i,i]);});
+  let pts=road.slice(), S2=si.slice(); const fixed={}; let tr;
+  for(const [i0,i1] of runs.reverse()){ // 從後面往前改，前面的位置才不會亂掉
+    const p=i0-1, q=i1+1, A=p>=0?S2[p]:null, B=q<N?S2[q]:null;
+    if(A!==null&&B!==null&&B<A) continue;
+    let r=null, how="";
+    if(tr===undefined) tr=await lastDayTrack(h);
+    if(tr){ r=gpsSeg(tr,h,pts,A,B,i0,i1); how="gps"; }
+    if(!r){ try{ r=await osrmSeg(h,pts,A,B,i0,i1); how="road"; }catch(e){ r=null; } }
+    if(!r||r.seg.length<2) continue;
+    const a0=A!==null?A:0, b0=B!==null?B:pts.length-1;
+    const before=A!==null?pts.slice(0,A):[], after=B!==null?pts.slice(B+1):[];
+    const base=before.length, delta=base+r.seg.length-(B!==null?B+1:pts.length);
+    pts=before.concat(r.seg,after);
+    for(let x=0;x<N;x++){
+      if(x>=i0&&x<=i1){ S2[x]=base+r.at[x]; fixed[x]=how; }
+      else if(B!==null&&x>=q) S2[x]+=delta;
+      else if(A===null&&x>i1) S2[x]+=delta;
+    }
+    if(A===null&&B===null) break;
+  }
+  if(!Object.keys(fixed).length) return null;
+  const left=conn.filter(c=>!(c.i in fixed)).map(c=>({i:c.i,to:S2[c.i]}));
+  return {pts,si:S2,conn:left,fixed};
+}
+// 把路線點化簡後，分批丟給 OSRM，用實際道路接起每兩個點；繞太遠或對不準的段落就保留原本的直線
+function simplifyIdx(pts,keep,tol){ // Douglas-Peucker，回傳要留下的點的位置（站的位置一定留）
+  const n=pts.length, mark=new Uint8Array(n); mark[0]=mark[n-1]=1; keep.forEach(i=>mark[i]=1);
+  const stack=[[0,n-1]];
+  while(stack.length){ const [a,b]=stack.pop(); if(b<=a+1) continue;
+    const A=pts[a],B=pts[b]; let md=-1,mi=-1;
+    for(let i=a+1;i<b;i++){ // 點到線段 AB 的距離（公尺）
+      const g={lat:A[0],lng:A[1]}, p=xy(g,pts[i][0],pts[i][1]), q=xy(g,B[0],B[1]); const L2=q[0]*q[0]+q[1]*q[1];
+      const t=L2?Math.max(0,Math.min(1,(p[0]*q[0]+p[1]*q[1])/L2)):0; const d=Math.hypot(p[0]-t*q[0],p[1]-t*q[1]);
+      if(d>md){md=d;mi=i;} }
+    if(md>tol){mark[mi]=1; stack.push([a,mi],[mi,b]);}
+    else for(let i=a+1;i<b;i++) if(mark[i]){stack.push([a,i],[i,b]);break;}
+  }
+  const out=[]; for(let i=0;i<n;i++) if(mark[i]) out.push(i); return out;
+}
+async function snapToRoads(pts,si){
+  const keep=simplifyIdx(pts,si,7);
+  const kp=keep.map(i=>pts[i]);
+  const legs=[]; // legs[j] = 從 kp[j] 到 kp[j+1] 的道路點
+  const CH=80;
+  for(let s0=0;s0<kp.length-1;s0+=CH-1){
+    const chunk=kp.slice(s0,Math.min(kp.length,s0+CH));
+    const url="https://router.project-osrm.org/route/v1/driving/"+chunk.map(p=>p[1].toFixed(6)+","+p[0].toFixed(6)).join(";")+"?overview=false&steps=true&geometries=geojson&continue_straight=false";
+    let j=null; try{ const r=await fetch(url); j=await r.json(); }catch(e){ j=null; }
+    for(let x=0;x<chunk.length-1;x++){
+      const A=chunk[x],B=chunk[x+1], straight=ptDist({lat:A[0],lng:A[1]},{lat:B[0],lng:B[1]});
+      let seg=null;
+      if(j&&j.code==="Ok"&&j.routes&&j.routes[0]&&j.routes[0].legs[x]){
+        const leg=j.routes[0].legs[x], wa=j.waypoints[x], wb=j.waypoints[x+1];
+        const ok=leg.distance<=Math.max(straight*1.6+40,straight+80)&&wa.distance<35&&wb.distance<35;
+        if(ok&&straight>=25){ seg=[]; leg.steps.forEach(stp=>stp.geometry.coordinates.forEach(c=>{const q=[+c[1].toFixed(6),+c[0].toFixed(6)];const l=seg[seg.length-1];if(!l||l[0]!==q[0]||l[1]!==q[1])seg.push(q);})); }
+      }
+      legs[s0+x]=seg; // null = 用直線
+    }
+    if(!j||j.code!=="Ok") return {pts,si,ok:false};
+    await new Promise(r=>setTimeout(r,250)); // 對免費服務客氣一點
+  }
+  const out=[], map=new Map(); // map: 原本的點位置 → 新的點位置
+  for(let x=0;x<kp.length;x++){
+    map.set(keep[x],out.length); out.push(kp[x]);
+    if(x<kp.length-1){ const seg=legs[x];
+      if(seg&&seg.length>2) seg.slice(1,-1).forEach(q=>out.push(q)); }
+  }
+  return {pts:out,si:si.map(i=>map.get(i)),ok:true};
+}
+async function ensurePaths(){
+  const st=S.setup; if(!st) return;
+  let changed=false;
+  for(const h of st.homes){ if((h.path&&h.path.v===4)||h.pathFail===st.saved) continue;
+    try{ const p=await fetchPath(h); if(p){p.v=4;h.path=p;changed=true;} else {h.pathFail=st.saved;} }catch(e){} }
+  if(changed){save(); built="";}
+}
+function fixedNote(h){ const f=(h.path&&h.path.fixed)||{}, g=[], r=[];
+  Object.keys(f).map(Number).sort((a,b)=>a-b).forEach(i=>(f[i]==="gps"?g:r).push(i+1));
+  return (g.length?"第 "+g.join("、")+" 站不在規劃路線上，照垃圾車上次實際開的路（GPS 軌跡）畫。":"")+(r.length?"第 "+r.join("、")+" 站不在規劃路線上，用地圖上的道路接起來。":""); }
+const savedView={};
+function buildCards(){
+  Object.entries(maps).forEach(([k,o])=>{try{ if(mapReady(o)) savedView[k]={c:o.m.getCenter(),z:o.m.getZoom(),user:o.userMoved,fitted:o.carFitted};}catch(e){} try{o.ro&&o.ro.disconnect();}catch(e){} try{o.m.remove()}catch(e){}});
+  for(const k in maps) delete maps[k];
+  $("cards").innerHTML=S.setup.homes.map((h,k)=>`<article class="card rcard" id="rc-${k}">
+    <div class="stop">我家這站：<b>${esc(shortName(h.pointName))}</b>・表定 ${esc(h.time)}</div>
+    <div><div class="big num" id="big-${k}"></div><div class="sub num" id="sub-${k}"></div></div>
+    <div class="chips" id="chips-${k}"></div>
+    <div class="where" id="where-${k}" hidden></div>
+    <div class="mapbox${fullK===k?" full":""}" id="mapbox-${k}"><div class="maparea"><div class="map" id="map-${k}" aria-label="垃圾車位置地圖"></div><div class="modebar" id="modebar-${k}" hidden></div>
+      <div class="stepbar" id="stepbar-${k}" hidden><button data-act="stepprev" data-k="${k}" id="stepprev-${k}" aria-label="上一段">◀</button><div class="steptxt" id="steptxt-${k}"></div><button data-act="stepnext" data-k="${k}" id="stepnext-${k}" aria-label="下一段">▶</button><button data-act="stepoff" data-k="${k}" aria-label="不看了" class="stepx">✕</button></div>
+      <button class="fsbtn" data-act="full" data-k="${k}" id="fsbtn-${k}"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>全螢幕</span></button></div>
+      <div class="mapbtns"><button data-act="car" data-type="garbage" data-k="${k}" class="gbtn">垃圾車在哪</button><button data-act="car" data-type="recycle" data-k="${k}" class="rbtn">回收車在哪</button><button data-act="home" data-k="${k}">我家</button><button data-act="all" data-k="${k}">整條路線</button><button data-act="gate" data-k="${k}" id="gatebtn-${k}" class="gatebtn">放提醒點</button><button data-act="gatedel" data-k="${k}" id="gatedel-${k}" class="gatebtn">刪除提醒點</button><button data-act="stepon" data-k="${k}" class="stepbtn">往下一站的路線</button><button data-act="play" data-k="${k}" class="playbtn">路線總覽</button></div>
+      <div class="playlab num" id="playlab-${k}" aria-live="polite"></div></div>
+    <ul class="legend2" id="legend-${k}">
+      <li class="lg-progress"><span class="lg ahead"></span>粗線：接下來到您家的路</li>
+      <li class="lg-progress"><span class="lg passed"></span>灰線：已經收過的路</li>
+      <li class="lg-progress"><span class="lg after"></span>淡色虛線：過了您家之後才走的路</li>
+      <li class="lg-order"><span class="lg grad"></span>顏色越往右越晚到：先藍、後紫、再紅、最後橘</li>
+      <li><span class="lg arrowlg"><svg viewBox="0 0 20 20" width="20" height="20"><path d="M3 3.5 17 10 3 16.5 6.5 10z" fill="currentColor" stroke="rgba(0,0,0,.65)" stroke-width="1.4"/></svg></span>箭頭：車子走的方向。同一條路來回走時，會變成兩條平行的線，各走自己的右邊</li>
+      <li><span class="lg conn"></span>灰色點線：這站不在清潔隊的規劃路線上</li>
+      <li><span class="snum" style="display:inline-flex;position:static">3</span>號碼：第幾站，數字越小越早到</li>
+    </ul>
+    <p class="hint" id="pathnote-${k}">${h.path?"路線是清潔隊規劃的路線"+(h.path.snapped?"，中間的空隙用實際道路補起來":"")+"。"+fixedNote(h)+"看不出先後的地方，按「往下一站的路線」或「路線總覽」。":"暫時拿不到實際道路，先用直線把各站連起來。"}點下面的站，地圖會移到那一站。</p>
+    <ol class="route" id="strip-${k}"></ol>
+    <p class="hint">${esc(h.routeName)}</p>
+  </article>`).join("");
+  S.setup.homes.forEach((h,k)=>{ try{ initMap(k,h); }catch(e){ reportErr(e); } });
+  if(fullK!==null){ if(!S.setup.homes[fullK]) setFull(null); else { const fb=$("fsbtn-"+fullK); if(fb) fb.querySelector("span").textContent="縮小"; setTimeout(()=>maps[fullK]&&maps[fullK].m.invalidateSize(),60);} }
+  built=sig();
+}
+function initMap(k,h){
+  const box=$("mapbox-"+k);
+  if(!window.L||!hasCoords(h)){ box.hidden=true; return; }
+  const m=L.map("map-"+k,{zoomControl:true,attributionControl:true,tap:true});
+  // 內政部國土測繪中心「臺灣通用電子地圖」，中文路名，不需要金鑰
+  L.tileLayer("https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
+    {maxZoom:19,className:dark()?"dimtiles":"",attribution:'&copy; <a href="https://maps.nlsc.gov.tw/">內政部國土測繪中心</a>'}).addTo(m);
+  const hi=h.stops.findIndex(s=>s.id===h.pointId);
+  // 先定好地圖視角，再加圖層。沒有視角時加的圖層會排隊，等定視角時才一起加；
+  // 那時灰色點線（rconn）會比畫線用的 SVG 圖層先加，Leaflet 會出錯，後面的路線、站號全部沒加上去（2026-11-02 地圖失效的原因）
+  const lo=Math.max(0,hi-4), up=Math.min(h.stops.length-1,hi+1);
+  const sv=savedView[k]; delete savedView[k];
+  if(sv&&sv.c&&isFinite(sv.z)) m.setView(sv.c,sv.z,{animate:false}); else { const el=$("map-"+k); if(el&&el.clientWidth>0&&el.clientHeight>0) m.fitBounds(L.latLngBounds(h.stops.slice(lo,up+1).map(s=>[s.lat,s.lng])).pad(.15)); else m.setView([h.stops[Math.max(0,hi)].lat,h.stops[Math.max(0,hi)].lng],16,{animate:false}); }
+  const P=h.path||{pts:h.stops.map(s=>[s.lat,s.lng]),si:h.stops.map((s,i)=>i),conn:[],straight:true};
+  const homeCut=P.si[hi];
+  const lay={
+    conn:L.layerGroup().addTo(m),
+    casing:L.polyline([],{className:"rcase",interactive:false}).addTo(m),
+    passed:L.polyline([],{className:"rpassed",interactive:false}).addTo(m),
+    after:L.polyline([],{className:"rafter",interactive:false}).addTo(m),
+    ahead:L.polyline([],{className:"rline",interactive:false}).addTo(m),
+    order:L.layerGroup().addTo(m),
+    stepCase:L.polyline([],{className:"rstepcase",interactive:false}).addTo(m),
+    step:L.polyline([],{className:"rstep",interactive:false}).addTo(m),
+    arrows:L.layerGroup().addTo(m)};
+  // 對不上規劃路線的站：灰色點線連到路線上
+  (P.conn||[]).forEach(c=>{const s=h.stops[c.i], q=P.pts[c.to]; if(s&&q) L.polyline([[s.lat,s.lng],q],{className:"rconn",interactive:false}).addTo(lay.conn);});
+  const stopMk=h.stops.map((s,i)=>L.marker([s.lat,s.lng],{zIndexOffset:i===hi?400:300,keyboard:false,
+      icon:L.divIcon({className:"",iconSize:[26,26],iconAnchor:[13,13],html:`<div class="snum${i===hi?" home":""}">${i+1}</div>`})})
+    .bindPopup(`<b>第 ${i+1} 站：${esc(shortName(s.name))}</b><br>表定 ${esc(s.time)}${i===hi?"<br>這是您家這站":""}`).addTo(m));
+  stopMk.forEach((mk,i)=>mk.on("click",()=>{selStop[k]=i;render();}));
+  const homeIcon=L.divIcon({className:"",iconSize:[34,40],iconAnchor:[17,40],html:`<svg class="hm" viewBox="0 0 24 28" width="34" height="40"><path d="M12 27s10-9 10-16a10 10 0 0 0-20 0c0 7 10 16 10 16z" fill="currentColor"/><path d="M7 12l5-4.5 5 4.5v5h-3.5v-3h-3v3H7z" fill="var(--panel)"/></svg>`});
+  L.marker([h.stops[hi].lat,h.stops[hi].lng],{icon:homeIcon,zIndexOffset:500}).bindPopup(`<b>我家這站</b><br>${esc(shortName(h.pointName))}・表定 ${esc(h.time)}`).addTo(m);
+  const o={m,h,hi,P,homeCut,lay,cut:-1,off:null,offZ:-1,step:null,stopMk,trucks:{},gates:{},userMoved:!!(sv&&sv.user),carFitted:!!(sv&&sv.fitted),play:null};
+  let tmr=null; m.on("zoomend",()=>{o.offZ=-1;drawRoute(o);}); m.on("moveend",()=>{clearTimeout(tmr);tmr=setTimeout(()=>drawArrows(o),120);});
+  // 使用者自己拖、縮放、點地圖之後，程式就不再自動移動地圖
+  const userTouch=()=>{o.userMoved=true;};
+  m.on("dragstart",userTouch);
+  ["pointerdown","touchstart","wheel"].forEach(ev=>$("map-"+k).addEventListener(ev,userTouch,{passive:true}));
+  m.on("click",e=>{if(mode[k]==="add")addGate(e.latlng,k);});
+  m.on("popupopen",e=>{const b=e.popup.getElement().querySelector("[data-gdel]");if(b)b.onclick=()=>{if(b.dataset.arm){m.closePopup();delGate(b.dataset.gdel);}else{b.dataset.arm=1;b.textContent="確定刪除？";}};});
+  maps[k]=o;
+  // 地圖大小改變（換頁回來、全螢幕、轉橫向）時，告訴地圖新的大小並重畫
+  if(window.ResizeObserver){ o.ro=new ResizeObserver(()=>{ const el=m.getContainer(); if(el.clientWidth>0&&el.clientHeight>0){ m.invalidateSize({pan:false}); if(o.needDraw||o.lastW!==el.clientWidth){ o.lastW=el.clientWidth; o.offZ=-1; drawRoute(o); } } }); o.ro.observe($("map-"+k)); }
+  drawRoute(o);
+}
+function refreshMaps(){ Object.values(maps).forEach(o=>{ try{ if(!mapReady(o)) { const el=o.m.getContainer(); if(el.clientWidth>0) o.m.invalidateSize({pan:false}); }
+  if(mapReady(o)){ o.m.invalidateSize({pan:false}); o.offZ=-1; drawRoute(o); } }catch(e){ reportErr(e); } }); }
+function cutAt(o,r){ // 車子在路線上走到哪一點（-1 = 還沒出發）
+  const P=o.P, ni=(r.ni!==undefined&&r.ni>=0)?r.ni:-1;
+  if(["off","wait"].includes(r.phase)) return -1;
+  if(["gone","justgone","done"].includes(r.phase)&&ni<0) return o.homeCut;
+  if(ni<0) return -1;
+  const lo=ni>0?P.si[ni-1]:0, hiI=P.si[ni];
+  if(!r.car||!r.car.lat||P.straight) return lo;
+  let best=lo,bd=1e12; for(let j=lo;j<=hiI;j++){const d=ptDist({lat:P.pts[j][0],lng:P.pts[j][1]},r.car);if(d<bd){bd=d;best=j;}}
+  return best;
+}
+// ---------- 畫路線 ----------
+// 路線往行進方向的右邊偏一點（台灣靠右行駛），同一條路來回走兩次就會變成兩條平行線，不會疊在一起
+const OFFSET_PX=6;
+const ORDER_COLORS=["#00A3C4","#2E6BE6","#7B2FF7","#C21DB8","#E0178A","#F26B1D"];
+function mpp(m,lat){const z=m.getZoom(); return isFinite(z)?156543.03392*Math.cos(lat*Math.PI/180)/Math.pow(2,z):0;} // 每個像素幾公尺
+function offsetPts(pts,meters){
+  if(!meters||!isFinite(meters)||pts.length<2) return pts;
+  const n=pts.length, out=new Array(n), lat0=pts[0][0], kx=Math.cos(lat0*Math.PI/180)*111320, ky=110574;
+  const nrm=[]; // 每一段的右手邊法向量
+  for(let i=0;i<n-1;i++){const e=(pts[i+1][1]-pts[i][1])*kx, nn=(pts[i+1][0]-pts[i][0])*ky, L=Math.hypot(e,nn)||1; nrm.push([nn/L,-e/L]);}
+  for(let i=0;i<n;i++){
+    const a=nrm[Math.max(0,i-1)], b=nrm[Math.min(n-2,i)];
+    let x=a[0]+b[0], y=a[1]+b[1]; const L=Math.hypot(x,y);
+    if(L<1e-6){x=b[0];y=b[1];} else {x/=L;y/=L; const c=x*b[0]+y*b[1]; const sc=Math.min(2,1/Math.max(.5,c)); x*=sc;y*=sc;}
+    out[i]=[pts[i][0]+y*meters/ky, pts[i][1]+x*meters/kx];
+  }
+  return out;
+}
+function mapReady(o){ const el=o.m.getContainer(); return el&&el.clientWidth>0&&el.clientHeight>0&&isFinite(o.m.getZoom()); }
+function offPts(o){
+  const z=o.m.getZoom();
+  if(o.offZ!==z||!o.off){o.off=o.P.straight?o.P.pts:offsetPts(o.P.pts,OFFSET_PX*mpp(o.m,o.P.pts[0][0]));o.offZ=z;}
+  return o.off;
+}
+function orderColor(f){ // 0（先）→ 1（後）
+  const t=Math.max(0,Math.min(1,f))*(ORDER_COLORS.length-1), i=Math.min(ORDER_COLORS.length-2,Math.floor(t)), u=t-i;
+  const h=c=>[1,3,5].map(k=>parseInt(c.slice(k,k+2),16)), A=h(ORDER_COLORS[i]), B=h(ORDER_COLORS[i+1]);
+  return "#"+A.map((v,k)=>Math.round(v+(B[k]-v)*u).toString(16).padStart(2,"0")).join("");
+}
+function paintRoute(o,cut,fast){ if(o.cut===cut&&!fast) return; o.cut=cut; drawRoute(o,fast); }
+function drawRoute(o,fast){
+  if(!mapReady(o)){ o.needDraw=true; return; } // 地圖藏起來時不畫，看得到時再畫（refreshMaps）
+  o.needDraw=false;
+  const P=o.P, pts=offPts(o), hc=o.homeCut, cut=o.cut, c=Math.max(0,Math.min(cut,hc)), Ly=o.lay;
+  const orderMode=S.routeMode==="order";
+  Ly.casing.setLatLngs(pts);
+  if(orderMode){
+    Ly.passed.setLatLngs([]); Ly.ahead.setLatLngs([]); Ly.after.setLatLngs([]);
+    if(!fast||!o.orderDrawn){ Ly.order.clearLayers(); const n=P.si.length;
+      for(let i=0;i<n-1;i++){ const a=P.si[i], b=P.si[i+1]; if(b<=a) continue;
+        Ly.order.addLayer(L.polyline(pts.slice(a,b+1),{className:"rorder",color:orderColor(i/Math.max(1,n-2)),interactive:false})); }
+      o.orderDrawn=true; }
+  } else {
+    if(o.orderDrawn){Ly.order.clearLayers();o.orderDrawn=false;}
+    Ly.passed.setLatLngs(cut>0?pts.slice(0,c+1):[]);
+    Ly.ahead.setLatLngs(pts.slice(c,hc+1));
+    Ly.after.setLatLngs(pts.slice(hc));
+  }
+  // 往下一站的路線
+  const box=o.m.getContainer().closest(".mapbox"); if(box) box.classList.toggle("stepping",o.step!==null);
+  if(o.step!==null){ const seg=pts.slice(P.si[o.step],P.si[o.step+1]+1); Ly.stepCase.setLatLngs(seg); Ly.step.setLatLngs(seg); }
+  else { Ly.stepCase.setLatLngs([]); Ly.step.setLatLngs([]); }
+  if(!fast) drawArrows(o);
+}
+// 方向箭頭：畫在線上，間隔用螢幕上的距離（放大縮小都差不多密），只畫看得到的範圍
+function arrowIcon(deg,col,cls){
+  const sz={s:16,m:22,l:30}[S.arrowSize||"m"]||22, dark=(col||"").toLowerCase()==="#13201a";
+  return L.divIcon({className:"",iconSize:[sz,sz],iconAnchor:[sz/2,sz/2],
+    html:`<svg class="arr ${cls||""}" viewBox="0 0 20 20" width="${sz}" height="${sz}" style="transform:rotate(${deg.toFixed(0)}deg)"><path d="M3 3.5 17 10 3 16.5 6.5 10z" fill="${col}" stroke="${dark?"#fff":"rgba(0,0,0,.65)"}" stroke-width="1.4" stroke-linejoin="round"/></svg>`});
+}
+function drawArrows(o){
+  const Ly=o.lay; Ly.arrows.clearLayers();
+  if(!mapReady(o)) return;
+  if(o.P.straight&&!o.P.pts) return;
+  const pts=offPts(o), m=o.m, vb=m.getBounds().pad(.25), gap={s:70,m:90,l:120}[S.arrowSize||"m"]||90;
+  const col=S.arrowColor==="line"?(S.lineColor||"#E0178A"):(S.arrowColor||"#FFFFFF");
+  const hc=o.homeCut, c=Math.max(0,Math.min(o.cut,hc));
+  let from=0,to=pts.length-1;
+  if(o.step!==null){from=o.P.si[o.step];to=o.P.si[o.step+1];}
+  let acc=gap*.5, prev=m.latLngToLayerPoint(pts[from]), count=0;
+  for(let j=from+1;j<=to&&count<400;j++){
+    const cur=m.latLngToLayerPoint(pts[j]), dx=cur.x-prev.x, dy=cur.y-prev.y, d=Math.hypot(dx,dy);
+    let used=0;
+    while(acc+d-used>=gap){ const t=(gap-acc+used)/d; used+=gap-acc; acc=0;
+      const lat=pts[j-1][0]+(pts[j][0]-pts[j-1][0])*Math.min(1,t), lng=pts[j-1][1]+(pts[j][1]-pts[j-1][1])*Math.min(1,t);
+      if(vb.contains([lat,lng])){
+        const cls=o.step!==null?"":(S.routeMode==="order"?"":(j<=c&&o.cut>0?"passed":(j>hc?"after":"")));
+        Ly.arrows.addLayer(L.marker([lat,lng],{icon:arrowIcon(Math.atan2(dy,dx)*180/Math.PI,col,cls),interactive:false,keyboard:false,zIndexOffset:-100})); count++; }
+    }
+    acc+=d-used; prev=cur;
+  }
+}
+// 往下一站的路線（程式裡叫 step）：一次只看「第 N 站 → 第 N+1 站」
+function setStep(k,i){
+  const o=maps[k]; if(!o) return; const n=o.P.si.length;
+  if(i===null){o.step=null; $("stepbar-"+k).hidden=true; drawRoute(o); return;}
+  i=Math.max(0,Math.min(n-2,i)); o.step=i; o.userMoved=true;
+  const A=o.h.stops[i], B=o.h.stops[i+1];
+  $("steptxt-"+k).innerHTML=`<b>第 ${i+1} 站 → 第 ${i+2} 站</b><small>${esc(shortName(A.name))} ${esc(A.time)} → ${esc(shortName(B.name))} ${esc(B.time)}</small>`;
+  $("stepbar-"+k).hidden=false; $("stepprev-"+k).disabled=i===0; $("stepnext-"+k).disabled=i>=n-2;
+  drawRoute(o);
+  const seg=offPts(o).slice(o.P.si[i],o.P.si[i+1]+1).concat([[A.lat,A.lng],[B.lat,B.lng]]);
+  o.m.fitBounds(L.latLngBounds(seg).pad(.3),{maxZoom:18});
+  selStop[k]=i+1; render();
+}
+function truckIcon(c,main){
+  const flip=typeof c.dir==="number"&&c.dir>180&&c.dir<360;
+  const off=main?!!c.offline:isOffline(c);
+  return L.divIcon({className:"",iconSize:main?[80,off?66:52]:[60,40],iconAnchor:main?[40,26]:[30,20],
+    html:`<div class="tk ${c.type} ${main?"":"other"} ${flip?"flip":""} ${off?(main?"offline":"stale"):""}"><svg viewBox="0 0 124 76"><use href="#t-${c.type}"/></svg><span>${esc(String(c.plate).replace("影",""))}</span>${off&&main?`<span class="offtag">離線 ${clockOf(c.t)}</span>`:""}</div>`});
+}
+function updateMap(k,r){
+  const o=maps[k]; if(!o) return;
+  syncGates(o);
+  const gb=$("gatebtn-"+k); if(gb){gb.textContent=mode[k]==="add"?"完成，不放了":"放提醒點";gb.classList.toggle("on",mode[k]==="add");}
+  const db=$("gatedel-"+k); if(db){db.textContent=mode[k]==="del"?"刪好了":"刪除提醒點";db.classList.toggle("on",mode[k]==="del");db.disabled=!(S.gates||[]).length&&mode[k]!=="del";}
+  $("mapbox-"+k).classList.toggle("placing",mode[k]==="add");
+  $("mapbox-"+k).classList.toggle("deleting",mode[k]==="del");
+  const mb=$("modebar-"+k); if(mb){mb.hidden=!mode[k]; mb.textContent=mode[k]==="add"?"點一下地圖上要提醒的地方，就會放一個提醒點":mode[k]==="del"?"點一下地圖上要刪掉的紅色提醒點":"";}
+  const ni=(r.ni!==undefined&&r.ni>=0)?r.ni:-1;
+  if(!o.play) paintRoute(o,cutAt(o,r));
+  if(o.lastMode!==S.routeMode+"|"+S.arrowColor+"|"+S.arrowSize+"|"+S.lineColor){o.lastMode=S.routeMode+"|"+S.arrowColor+"|"+S.arrowSize+"|"+S.lineColor;o.orderDrawn=false;drawRoute(o);}
+  o.stopMk.forEach((mk,i)=>{const el=mk.getElement&&mk.getElement(); if(!el) return; const d=el.querySelector(".snum")||el;
+    d.classList.toggle("passed",ni>=0&&i<ni&&i!==o.hi); d.classList.toggle("next",i===ni&&i!==o.hi); d.classList.toggle("sel",selStop[k]===i);});
+  // 這條路線的車放大，鄉內其他還在跑的車畫小一點
+  const show={}; if(r.car) show[r.car.id]=true; if(r.mate) show[r.mate.id]=true;
+  const list=cars.slice(); [r.car,r.mate].forEach(c=>{ if(c&&!list.find(x=>x.id===c.id)) list.push(c); }); // 從清單消失的車，用記住的最後位置
+  list.forEach(c=>{ if(!c.lat||!c.lng) return;
+    const main=!!show[c.id], fresh=Date.now()-c.t<10*60000;
+    if(!main&&!fresh){ if(o.trucks[c.id]){o.m.removeLayer(o.trucks[c.id]);delete o.trucks[c.id];} return; }
+    const pop=(main?c.offline:isOffline(c))?`<b>${kindName(c.type)} ${esc(c.plate)}</b><br><b class="offword">離線了</b>：訊號中斷 ${agoText(c)}<br>這是 ${clockOf(c.t)} 最後的位置${main?"<br>會經過您家這站":""}`
+      :`<b>${kindName(c.type)} ${esc(c.plate)}</b><br>位置更新：${new Date(c.t).toLocaleTimeString("zh-TW",{hour12:false})}${main?"<br>會經過您家這站":""}`;
+    if(o.trucks[c.id]){ o.trucks[c.id].setLatLng([c.lat,c.lng]).setIcon(truckIcon(c,main)).setPopupContent(pop).setZIndexOffset(main?1000:0); }
+    else o.trucks[c.id]=L.marker([c.lat,c.lng],{icon:truckIcon(c,main),zIndexOffset:main?1000:0}).bindPopup(pop).addTo(o.m);
+  });
+  Object.keys(o.trucks).forEach(id=>{ if(!list.find(c=>c.id===id)){o.m.removeLayer(o.trucks[id]);delete o.trucks[id];} });
+  if(r.car&&r.car.lat&&!r.car.offline&&!o.carFitted&&!o.userMoved&&!mode[k]&&!o.play&&["coming","here","far"].includes(r.phase)){
+    o.carFitted=true; const hs=o.h.stops[o.hi];
+    o.m.fitBounds(L.latLngBounds([[r.car.lat,r.car.lng],[hs.lat,hs.lng]]).pad(.25),{maxZoom:17});
+  }
+}
+const gateIcon=()=>L.divIcon({className:"",iconSize:[36,44],iconAnchor:[18,43],html:`<svg class="gateic" viewBox="0 0 36 44" width="36" height="44"><g class="gx"><circle cx="29" cy="7" r="7" fill="#13201A" stroke="#fff" stroke-width="1.5"/><path d="M26 4l6 6M32 4l-6 6" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></g><path d="M18 43s15-13.5 15-25A15 15 0 0 0 3 18c0 11.5 15 25 15 25z" fill="#C42626" stroke="#fff" stroke-width="2"/><path d="M11.5 22.5c1.4-1.2 1.6-3 1.6-5.2a4.9 4.9 0 0 1 9.8 0c0 2.2.2 4 1.6 5.2z" fill="#fff"/><circle cx="18" cy="25.3" r="1.8" fill="#fff"/></svg>`});
+function syncGates(o){
+  const want={}; (S.gates||[]).forEach(g=>{want[g.id]=1;
+    if(!o.gates[g.id]){
+      const pop=`<b>提醒點：${esc(g.name)}</b><br>車子進到 ${g.r} 公尺內就提醒<br><button class="popbtn" data-gdel="${g.id}">刪除這個提醒點</button>`;
+      const mk=L.marker([g.lat,g.lng],{icon:gateIcon(),zIndexOffset:800,title:"提醒點："+g.name}).addTo(o.m);
+      mk.on("click",()=>{ const k=+Object.keys(maps).find(x=>maps[x]===o);
+        if(mode[k]==="del"){ delGate(g.id,true); }
+        else { L.popup({offset:[0,-34]}).setLatLng([g.lat,g.lng]).setContent(pop).openOn(o.m); } });
+      o.gates[g.id]={c:L.circle([g.lat,g.lng],{radius:g.r,className:"gatecircle",interactive:false}).addTo(o.m),mk};
+    }});
+  Object.keys(o.gates).forEach(id=>{if(!want[id]){o.m.removeLayer(o.gates[id].c);o.m.removeLayer(o.gates[id].mk);delete o.gates[id];}});
+}
+let fullK=null; // 哪一張地圖正在全螢幕
+function setFull(k){
+  const prev=fullK; fullK=k;
+  Object.keys(maps).forEach(x=>{const box=$("mapbox-"+x),on=fullK===+x; if(!box)return; box.classList.toggle("full",on);
+    const fb=$("fsbtn-"+x); if(fb) fb.querySelector("span").textContent=on?"縮小":"全螢幕";});
+  document.body.classList.toggle("mapfull",fullK!==null);
+  [prev,k].forEach(x=>{if(x!==null&&maps[x]) setTimeout(()=>{ const o=maps[x]; o.m.invalidateSize(); o.offZ=-1; drawRoute(o); },60);});
+  if(fullK===null&&prev!==null) $("mapbox-"+prev).scrollIntoView({block:"center"});
+}
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&fullK!==null)setFull(null);});
+// Android 的返回鍵：先關鬧鐘、縮小地圖、結束放置模式、回到「我家」；都不是就回傳 false（App 會退到背景）
+window.ljtBack=function(){
+  if(!$("alarm").hidden){closeAlarm();return true;}
+  if(fullK!==null){setFull(null);return true;}
+  for(const k in mode) if(mode[k]){mode[k]=null;render();return true;}
+  const cur=document.querySelector('nav.tabs button[aria-current="page"]');
+  if(cur&&cur.dataset.view!=="home"){go("home");return true;}
+  return false;
+};
+function playRoute(k){
+  const o=maps[k]; if(!o) return;
+  if(o.play){cancelAnimationFrame(o.play.raf);o.m.removeLayer(o.play.dot);o.play=null;o.cut=-2;render();return;}
+  if(o.step!==null) setStep(k,null);
+  const P=o.P, n=P.pts.length, dur=Math.min(16000,Math.max(7000,n*8));
+  const dot=L.marker(P.pts[0],{interactive:false,zIndexOffset:2000,icon:L.divIcon({className:"",iconSize:[22,22],iconAnchor:[11,11],html:'<div class="playdot"></div>'})}).addTo(o.m);
+  o.userMoved=true; o.m.fitBounds(L.latLngBounds(P.pts).pad(.05));
+  const t0=performance.now(); o.play={dot,raf:0};
+  const step=t=>{ if(!o.play) return; const f=Math.min(1,(t-t0)/dur), j=Math.floor(f*(n-1));
+    dot.setLatLng(offPts(o)[j]); paintRoute(o,j,true);
+    const si=P.si.findIndex(x=>x>=j); $("playlab-"+k).textContent=f<1?("正在走到第 "+(si<0?P.si.length:si+1)+" 站"+(si===o.hi?"（您家）":"")):"播完了";
+    if(f<1) o.play.raf=requestAnimationFrame(step); else setTimeout(()=>{if(o.play){o.m.removeLayer(dot);o.play=null;o.cut=-2;$("playlab-"+k).textContent="";render();drawArrows(o);}},1500);
+  };
+  o.play.raf=requestAnimationFrame(step);
+}
+function focusCar(k,c){
+  const o=maps[k]; if(!o||!c||!c.lat){toast("現在沒有這台車的位置");return;}
+  if(isOffline(c)) toast((c.type==="recycle"?"回收車":"垃圾車")+"離線了，這是 "+clockOf(c.t)+" 最後的位置");
+  o.userMoved=true; if(fullK===null) $("mapbox-"+k).scrollIntoView({behavior:"smooth",block:"center"});
+  o.m.flyTo([c.lat,c.lng],17,{duration:.8}); setTimeout(()=>o.trucks[c.id]&&o.trucks[c.id].openPopup(),850);
+}
+function focusStop(k,i){
+  selStop[k]=i; render(); const o=maps[k]; if(!o) return;
+  const s=o.h.stops[i]; o.userMoved=true;
+  if(fullK===null) $("mapbox-"+k).scrollIntoView({behavior:"smooth",block:"center"});
+  o.m.flyTo([s.lat,s.lng],17,{duration:.8}); setTimeout(()=>o.stopMk[i].openPopup(),850);
+}
+$("cards").addEventListener("click",e=>{
+  const li=e.target.closest("li[data-i]"); if(li){focusStop(+li.dataset.k,+li.dataset.i);return;}
+  const ch=e.target.closest(".chip[data-carid]"); if(ch){focusCar(+ch.dataset.k,getCar(ch.dataset.carid));return;}
+  if(e.target.closest("[data-pickrecycle]")){go("stop");setTimeout(()=>$("recyclecard").scrollIntoView({block:"start"}),50);return;}
+  const g=e.target.closest("li[data-gap]"); if(g){const k=+g.dataset.gap;expanded[k]=!expanded[k];render();return;}
+  const b=e.target.closest("button[data-act]"); if(!b) return;
+  const k=+b.dataset.k, o=maps[k]; if(!o) return;
+  if(b.dataset.act==="full"){setFull(fullK===k?null:k);return;}
+  if(b.dataset.act==="play"){playRoute(k);return;}
+  if(b.dataset.act==="stepon"){ if(o.step!==null){setStep(k,null);return;} const r=routeState(o.h); setStep(k,(r.ni!==undefined&&r.ni>0)?r.ni-1:0); return; }
+  if(b.dataset.act==="stepprev"){setStep(k,o.step-1);return;}
+  if(b.dataset.act==="stepnext"){setStep(k,o.step+1);return;}
+  if(b.dataset.act==="stepoff"){setStep(k,null);return;}
+  if(b.dataset.act==="gate"){mode[k]=mode[k]==="add"?null:"add";render();return;}
+  if(b.dataset.act==="gatedel"){mode[k]=mode[k]==="del"?null:"del";render();return;}
+  o.userMoved=true;
+  const r=routeState(o.h);
+  if(b.dataset.act==="car"){ const want=b.dataset.type, c=[r.car,r.mate].find(x=>x&&x.type===want);
+    if(c&&c.lat) focusCar(k,c); else toast(want==="recycle"?(mateNone(r)?"今天這條路線沒有回收車":"還沒認出這條路線的回收車，可以到「改地址」自己選"):"今天還沒看到這條路線的垃圾車"); }
+  if(b.dataset.act==="home"){ const s=o.h.stops[o.hi]; o.m.flyTo([s.lat,s.lng],17,{duration:.8}); }
+  if(b.dataset.act==="all"){ o.m.fitBounds(L.latLngBounds(o.P.pts).pad(.05)); }
+});
+$("cards").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches("li[role=button],.chip[role=button]")){e.preventDefault();e.target.click();}});
+function render(){
+  const d=new Date(); $("date").textContent=(d.getMonth()+1)+" 月 "+d.getDate()+" 日 星期"+"日一二三四五六"[d.getDay()];
+  const st=S.setup;
+  $("nosetup").hidden=!!st; $("homebody").hidden=!st;
+  if(!st) return;
+  const rs=st.homes.map(routeState);
+  const anyToday=rs.some(r=>r.runsToday);
+  $("today").className="banner "+(anyToday?"ok":"off");
+  $("todaytxt").textContent=anyToday?"今天星期"+"日一二三四五六"[d.getDay()]+"，您家這站有收":"今天星期"+"日一二三四五六"[d.getDay()]+"，您家這站不收，不用倒垃圾";
+  $("fresh").textContent=lastOK?("資料更新："+new Date(lastOK).toLocaleTimeString("zh-TW",{hour12:false})+(lastErr?"（最新一次失敗）":"")):"正在讀取資料…";
+  renderSchedInfo();
+  if(built!==sig()) buildCards();
+  if(!$("view-stop").hidden) renderRecyclePick();
+  rs.forEach((r,k)=>{
+    const [big,sub]=bigText(r);
+    const primaryType=r.car?r.car.type:"garbage";
+    const running=["coming","here","justgone","gone","far"].includes(r.phase);
+    const card=$("rc-"+k); if(!card) return;
+    card.classList.toggle("here",r.phase==="here"); card.style.borderColor=`var(--${primaryType})`;
+    if(r.h.homeGone||r.h.gone){ $("big-"+k).textContent="要重新選站"; $("sub-"+k).textContent="這站已經不在清潔隊的班表上"; }
+    else $("big-"+k).textContent=big; if(!(r.h.homeGone||r.h.gone)) $("sub-"+k).textContent=sub+(r.car&&r.car.offline&&["coming","far"].includes(r.phase)?"（離線前的資料）":"");
+    $("chips-"+k).innerHTML=chip(r.car,primaryType,r.car?"負責這條路線":(r.runsToday?"還沒收到這台車的位置":"今天不收"),k,r.h)+
+      chip(r.mate,"recycle",mateNote(r),k,r.h);
+    let where="";
+    if(r.phase==="coming"||r.phase==="here") where=`車子正往「${esc(shortName(r.h.stops[r.ni].name))}」開，還有 ${Math.max(0,r.meters)} 公尺`;
+    else if(r.phase==="wait") where=`這條路線第一站 ${esc(r.h.stops[0].time)} 開始收，車子出發後就會顯示位置`;
+    else if(r.phase==="far") where="車子在路線上，但目前不在我們排好的站之間";
+    if(r.mate&&r.mi>=0&&(r.phase==="coming"||r.phase==="here")) where+=`<br>${r.mate.type==="recycle"?"回收車":"垃圾車"}正往「${esc(shortName(r.h.stops[r.mi].name))}」開`;
+    else if(r.mate&&r.mi<0&&running) where+=`<br>${r.mate.type==="recycle"?"回收車":"垃圾車"}目前不在這條路線上`;
+    const offs=[r.car,r.mate].filter(c=>c&&c.offline&&r.runsToday);
+    if(offs.length) where=offs.map(c=>`<span class="warnline">${c.type==="recycle"?"回收車":"垃圾車"}離線了（訊號中斷 ${agoText(c)}），地圖上是離線前最後的位置${c===r.car?"，上面的站數也是離線前的資料":""}</span>`).join("<br>")+(where?"<br>"+where:"");
+    $("where-"+k).innerHTML=where; $("where-"+k).hidden=!where;
+    $("strip-"+k).innerHTML=strip(r,k);
+    try{ updateMap(k,r); }catch(e){ reportErr(e); }
+  });
+  if(tracking) checkAlarms(rs);
+}
+
+// ---------- 鬧鐘 ----------
+let tracking=false, fired={}, snooze={}, queue=[], current=null, ac=null, beepTimer=null, beepStop=null, wake=null;
+function dayKey(id){return new Date().toDateString()+"|"+id}
+function ensureAudio(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==="suspended")ac.resume();}catch(e){}}
+function beepOnce(){if(!ac)return;const t=ac.currentTime;[0,.28,.56].forEach((d,k)=>{const o=ac.createOscillator(),g=ac.createGain();o.type="square";o.frequency.value=k===2?1320:880;g.gain.setValueAtTime(0,t+d);g.gain.linearRampToValueAtTime(.35,t+d+.02);g.gain.linearRampToValueAtTime(0,t+d+.22);o.connect(g).connect(ac.destination);o.start(t+d);o.stop(t+d+.25);});}
+const APP=window.LJTApp||null; // Android App 才有；網頁版是 null
+function speak(text){try{if(!S.voice)return; if(APP){APP.speak(text);return;} if(!window.speechSynthesis)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang="zh-TW";u.rate=.85;speechSynthesis.speak(u);}catch(e){}}
+function vib(){try{if(!S.vib)return; if(APP){APP.vibrate();return;} if(navigator.vibrate)navigator.vibrate([600,300,600,300,600]);}catch(e){}}
+// 交給 App 背景追蹤用的設定（App 在背景時由它自己查資料、響鈴）
+function appCfg(){const st=S.setup;return JSON.stringify({cust:st.cust,team:st.team,poll:S.poll||20,thr:S.thr,arrive:S.arrive,gateOn:!!S.gateOn,sound:S.sound,voice:S.voice,vib:S.vib,
+  gates:(S.gates||[]).map(g=>({id:g.id,lat:g.lat,lng:g.lng,r:g.r,name:g.name})),
+  homes:st.homes.map(h=>({routeId:h.routeId,pointId:h.pointId,pointName:shortName(h.pointName),period:h.period||[],stops:h.stops.map(x=>({id:x.id,name:shortName(x.name),time:x.time,lat:x.lat,lng:x.lng})),
+    line:routeLine(h).filter((p,i,a)=>i%2===0||i===a.length-1).map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]),
+    recyclePin:(S.recycle||{})[h.routeId]||"", recycleLearned:(()=>{const pm=pickMate(h);return pm.how!=="pin"&&pm.car?pm.car.id:"";})(), recyclePlate:(()=>{const pm=pickMate(h);return pm.how==="official"?pm.plate:"";})(), recycleNone:["todaynone","downone","offnone"].includes(pickMate(h).how)}))});}
+function appSync(){try{if(APP&&tracking&&S.setup)APP.update(appCfg());}catch(e){}}
+function markFired(key){try{if(APP)APP.markFired(key);}catch(e){}}
+function pullFired(){ // App 在背景響過的，回到畫面就不要再響一次
+  try{if(!APP)return; JSON.parse(APP.firedKeys()||"[]").forEach(k=>{ if(/\|g/.test(k)) gateSt[k]={fired:true,t:Date.now()}; else fired[k]=1; });}catch(e){}
+}
+function routeAlarm(r){
+  const type=r.car?r.car.type:"garbage", here=r.phase==="here", eta=Math.max(1,Math.round(r.eta||0));
+  const kind=r.mate?(type==="garbage"?"垃圾車和回收車":"回收車和垃圾車"):kindName(type);
+  return {key:"r"+r.h.pointId,type,mate:r.mate?r.mate.type:null,kind,
+    big:here?"到您家了！":(r.away===1?"下一站就到":"還有 "+r.away+" 站"),
+    sub:here?"在「"+shortName(r.h.pointName)+"」，快拿出去":"大約 "+eta+" 分鐘後到，可以準備了",
+    say:kind+(here?"到了，請快出門":"還有"+r.away+"站，大約"+eta+"分鐘後到"),
+    snooze:(!here&&r.away>1)?{k:dayKey(r.h.pointId),away:r.away}:null};
+}
+function gateAlarm(g,r,hit){
+  const other=hit===r.car?r.mate:r.car, mt=other&&other.type!==hit.type?other.type:null;
+  const kind=mt?(hit.type==="garbage"?"垃圾車和回收車":"回收車和垃圾車"):kindName(hit.type);
+  const coming=r.phase==="coming", eta=Math.max(1,Math.round(r.eta||0));
+  return {key:"g"+g.id+"|"+r.h.pointId,type:hit.type,mate:mt,kind,big:"經過提醒點了",
+    sub:"在「"+g.name+"」"+(coming?"，到您家還有 "+r.away+" 站，大約 "+eta+" 分鐘":r.phase==="here"?"，已經到您家這站":""),
+    say:kind+"經過"+g.name+"了"+(coming?"，還有"+r.away+"站到您家":""),snooze:null};
+}
+function checkAlarms(rs){
+  rs.forEach(r=>{
+    const k=dayKey(r.h.pointId);
+    if(r.phase==="coming"&&r.away<=S.thr){
+      if(!fired[k+"pre"]){fired[k+"pre"]=1;markFired(k+"pre");push(routeAlarm(r));}
+      else if(snooze[k]!==undefined&&r.away<snooze[k]){delete snooze[k];push(routeAlarm(r));}
+    }
+    if(r.phase==="here"&&S.arrive&&!fired[k+"here"]){fired[k+"here"]=1;markFired(k+"here");push(routeAlarm(r));}
+  });
+  if(S.gateOn) checkGates(rs);
+}
+// ---------- 提醒點（原本叫路障）：車子經過地圖上的某個點就提醒 ----------
+const gateSt={};
+function xy(g,lat,lng){return [(lng-g.lng)*Math.cos(g.lat*Math.PI/180)*111320,(lat-g.lat)*110574]}
+function ptDist(g,c){const [x,y]=xy(g,c.lat,c.lng);return Math.hypot(x,y)}
+function passDist(g,c){ // 用上一次和這一次的位置連成線段，車子開很快跳過提醒點也抓得到
+  const p=c.prev; if(!p||!p.lat||c.t-p.t>3*60000) return ptDist(g,c);
+  const [ax,ay]=xy(g,p.lat,p.lng),[bx,by]=xy(g,c.lat,c.lng),dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;
+  const t=L2?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/L2)):0; return Math.hypot(ax+t*dx,ay+t*dy);
+}
+function checkGates(rs){
+  const now=Date.now();
+  (S.gates||[]).forEach(g=>rs.forEach(r=>{
+    if(!r.runsToday) return;
+    const cs=[r.car,r.mate].filter(c=>c&&c.lat&&now-c.t<5*60000); if(!cs.length) return;
+    const key=dayKey("g"+g.id+"|"+r.h.pointId), st=gateSt[key]||(gateSt[key]={fired:false,t:0});
+    const hit=cs.find(c=>passDist(g,c)<=g.r);
+    if(hit&&!st.fired){st.fired=true;st.t=now;markFired(key);push(gateAlarm(g,r,hit));}
+    else if(st.fired&&!hit&&now-st.t>5*60000&&cs.every(c=>ptDist(g,c)>g.r*2.5)) st.fired=false; // 走遠了，下次再經過還會提醒
+  }));
+}
+function push(a){
+  if(current&&current.key===a.key){current=a;showAlarm();return;}
+  if(!current){current=a;showAlarm();} else if(!queue.find(q=>q.key===a.key)) queue.push(a);
+}
+function showAlarm(){
+  const a=current, el=$("alarm"); el.className="alarm "+a.type; el.hidden=false;
+  const types=[a.type].concat(a.mate?[a.mate]:[]);
+  $("a-icons").innerHTML=types.map(t=>`<svg viewBox="0 0 124 76" style="color:${t===a.type?"var(--panel)":"var(--"+t+")"}"><use href="#t-${t}"/></svg>`).join("");
+  $("a-kind").textContent=a.kind; $("a-big").textContent=a.big; $("a-sub").textContent=a.sub;
+  $("a-snooze").hidden=!a.snooze;
+  stopSound();
+  if(S.sound){beepOnce();beepTimer=setInterval(beepOnce,1400);beepStop=setTimeout(stopSound,60000);}
+  speak(a.say); vib(); $("a-ok").focus();
+}
+function stopSound(){if(beepTimer){clearInterval(beepTimer);beepTimer=null;}clearTimeout(beepStop);}
+function closeAlarm(){stopSound();try{window.speechSynthesis&&speechSynthesis.cancel()}catch(e){}$("alarm").hidden=true;current=null;if(queue.length){current=queue.shift();setTimeout(showAlarm,400);}}
+$("a-ok").onclick=closeAlarm;
+$("a-snooze").onclick=()=>{if(current&&current.snooze)snooze[current.snooze.k]=current.snooze.away;toast("好，下一站會再提醒您");closeAlarm();};
+$("testbtn").onclick=()=>{ensureAudio();current={key:"test",type:"garbage",mate:"recycle",kind:"垃圾車和回收車",big:"還有 "+S.thr+" 站",sub:"大約 "+Math.round(S.thr*3.5)+" 分鐘後到，可以準備了",say:"垃圾車和回收車還有"+S.thr+"站",snooze:null};showAlarm();};
+
+async function lockScreen(){try{if(navigator.wakeLock&&document.visibilityState==="visible")wake=await navigator.wakeLock.request("screen");}catch(e){}}
+function showTracking(on){tracking=on;$("startbox").hidden=on;$("trackingon").hidden=!on;
+  $("bgnote").textContent=APP?"，切到別的 App 或鎖螢幕也會響":"，請讓這個畫面開著";}
+$("startbtn").onclick=()=>{ensureAudio();showTracking(true);
+  if(APP&&S.setup){try{APP.start(appCfg());}catch(e){}} else lockScreen();
+  speak("開始追蹤，車子快到時會提醒您");render();};
+$("stopbtn").onclick=()=>{showTracking(false);try{APP&&APP.stop();}catch(e){}try{wake&&wake.release();}catch(e){}toast("停止追蹤了");};
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){pullFired();refresh();if(tracking&&!APP)lockScreen();}});
+
+// ---------- 介面 ----------
+function go(v){
+  if(fullK!==null) setFull(null);
+  if(v==="stop") setTimeout(renderRecyclePick,0);
+  document.querySelectorAll("nav.tabs button").forEach(b=>{if(b.dataset.view===v)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});
+  ["home","alert","settings","stop"].forEach(x=>$("view-"+x).hidden=x!==v); window.scrollTo(0,0);
+  if(v==="home") setTimeout(refreshMaps,30);
+}
+document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>go(b.dataset.view));
+$("gosetup").onclick=()=>{go("stop");$("addr").focus();};
+function renderSettings(){
+  $("thr").textContent=S.thr;$("thr-inline").textContent=S.thr;
+  [["sw-arrive","arrive"],["sw-sound","sound"],["sw-voice","voice"],["sw-vib","vib"]].forEach(([id,k])=>{$(id).setAttribute("aria-pressed",S[k]);$(id).textContent=S[k]?"開":"關";});
+  document.querySelectorAll("[data-fs]").forEach(b=>b.setAttribute("aria-pressed",+b.dataset.fs===S.fs));
+  document.querySelectorAll("[data-poll]").forEach(b=>b.setAttribute("aria-pressed",+b.dataset.poll===(S.poll||20)));
+  document.querySelectorAll("[data-gr]").forEach(b=>b.setAttribute("aria-pressed",+b.dataset.gr===(S.gateR||100)));
+  $("sw-gate").setAttribute("aria-pressed",!!S.gateOn); $("sw-gate").textContent=S.gateOn?"開":"關";
+  renderGates();
+  const lc=S.lineColor||"#E0178A"; document.documentElement.style.setProperty("--rline",lc); $("linecolor").value=lc;
+  const ac=S.arrowColor||"#FFFFFF";
+  $("arrowsw").innerHTML=ARROW_COLORS.map(([c,n])=>`<button class="sw${c==="line"?" wide":""}" data-ac="${c}" aria-pressed="${c===ac}"><span class="dot" style="background:${c==="line"?lc:c}"></span>${n}</button>`).join("");
+  document.querySelectorAll("[data-rm]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.rm===(S.routeMode||"progress")));
+  document.querySelectorAll("[data-as]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.as===(S.arrowSize||"m")));
+  $("rmhint").textContent=(S.routeMode==="order")?"整條路線從藍色（先到）漸漸變成橘色（後到），路線重疊時看顏色就知道先後。":"已經收過的路變灰色，接下來到您家的路畫粗線，過了您家的路變淡。";
+  document.body.classList.toggle("rm-order",S.routeMode==="order");
+  $("swatches").innerHTML=LINE_COLORS.map(([c,n])=>`<button class="sw" data-lc="${c}" aria-pressed="${c.toLowerCase()===lc.toLowerCase()}"><span class="dot" style="background:${c}"></span>${n}</button>`).join("");
+  document.documentElement.style.setProperty("--scale",S.fs);
+}
+$("thr-minus").onclick=()=>{S.thr=Math.max(1,S.thr-1);save();renderSettings();};
+$("thr-plus").onclick=()=>{S.thr=Math.min(10,S.thr+1);save();renderSettings();};
+[["sw-arrive","arrive"],["sw-sound","sound"],["sw-voice","voice"],["sw-vib","vib"]].forEach(([id,k])=>$(id).onclick=()=>{S[k]=!S[k];save();renderSettings();});
+document.querySelectorAll("[data-fs]").forEach(b=>b.onclick=()=>{S.fs=+b.dataset.fs;save();renderSettings();});
+document.querySelectorAll("[data-poll]").forEach(b=>b.onclick=()=>{S.poll=+b.dataset.poll;save();renderSettings();startPoll();refresh();toast("改成每 "+(S.poll<60?S.poll+" 秒":"1 分鐘")+"更新一次");});
+document.querySelectorAll("[data-gr]").forEach(b=>b.onclick=()=>{S.gateR=+b.dataset.gr;save();renderSettings();});
+$("sw-gate").onclick=()=>{S.gateOn=!S.gateOn;save();renderSettings();};
+const ARROW_COLORS=[["#FFFFFF","白色"],["#13201A","黑色"],["#FFD400","黃色"],["line","跟路線同色"]];
+$("arrowsw").addEventListener("click",e=>{const b=e.target.closest("[data-ac]");if(b){S.arrowColor=b.dataset.ac;save();renderSettings();render();}});
+document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{S.routeMode=b.dataset.rm;save();renderSettings();render();});
+document.querySelectorAll("[data-as]").forEach(b=>b.onclick=()=>{S.arrowSize=b.dataset.as;save();renderSettings();render();});
+const LINE_COLORS=[["#E0178A","桃紅"],["#7B2FF7","紫色"],["#E53935","紅色"],["#00A86B","綠色"],["#00A3C4","水藍"],["#13201A","黑色"]];
+function setLine(c){S.lineColor=c;save();renderSettings();render();}
+$("swatches").addEventListener("click",e=>{const b=e.target.closest("[data-lc]");if(b){setLine(b.dataset.lc);toast("路線改成"+b.textContent.trim());}});
+$("linecolor").addEventListener("input",e=>setLine(e.target.value));
+let delArm=null;
+function renderGates(){
+  const g=S.gates||[];
+  $("gatelist").innerHTML=g.length?g.map(x=>`<div class="stopbtn" style="grid-template-columns:1fr auto"><span class="nm">${esc(x.name)}</span><button class="delbtn" data-gdel2="${x.id}">${delArm===x.id?"確定刪除？":"刪除"}</button><span class="meta" style="grid-column:1/-1">範圍 ${x.r} 公尺</span></div>`).join(""):'<p class="hint">還沒有提醒點。</p>';
+}
+$("gatelist").addEventListener("click",e=>{const b=e.target.closest("[data-gdel2]");if(!b)return;const id=b.dataset.gdel2;
+  if(delArm!==id){delArm=id;renderGates();return;} delGate(id);});
+function delGate(id,fromMap){
+  const g=(S.gates||[]).find(x=>x.id===id); if(!g) return;
+  S.gates=S.gates.filter(x=>x.id!==id); delArm=null; save();
+  if(!S.gates.length) for(const k in mode) if(mode[k]==="del") mode[k]=null;
+  renderGates(); render();
+  toast("刪掉了「"+g.name+"」",{label:"復原",fn:()=>{S.gates=(S.gates||[]).concat([g]);save();renderGates();render();toast("復原了「"+g.name+"」");}});
+}
+const mode={}; // 每張地圖現在的模式：null、"add" 放提醒點、"del" 刪除提醒點
+function addGate(ll,k){
+  if((S.gates||[]).length>=5){toast("最多放 5 個提醒點，要先刪掉一個");mode[k]=null;render();return;}
+  let name="", bd=1e9; (S.setup?S.setup.homes:[]).forEach(h=>h.stops.forEach(s=>{if(typeof s.lat!=="number")return;const d=ptDist({lat:ll.lat,lng:ll.lng},s);if(d<bd){bd=d;name=shortName(s.name);}}));
+  const g={id:Date.now().toString(36),lat:ll.lat,lng:ll.lng,r:S.gateR||100,name:bd<=300?name+"附近":"提醒點 "+((S.gates||[]).length+1)};
+  S.gates=(S.gates||[]).concat([g]); mode[k]=null; save(); renderGates(); render();
+  toast("提醒點放好了：「"+g.name+"」，範圍 "+g.r+" 公尺");
+}
+
+renderSettings(); renderCurrent();
+try{ if(APP&&APP.isTracking()){ showTracking(true); pullFired(); } }catch(e){}
+if(APP){ const b=$("batterybtn"); if(b){ b.hidden=false; b.onclick=()=>{try{APP.openBatterySettings();}catch(e){}}; } }
+if(!APP&&location.protocol==="https:"&&"serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+render();
+if(!S.setup) go("stop");
+ensureCoords().then(()=>ensureStops()).then(()=>{render();refresh();return ensurePaths();}).then(()=>render()).then(()=>syncSchedule(false)).then(()=>checkNotices(false));
+window.ljtSync=()=>syncSchedule(true); // 測試用：立刻核對班表
+window.ljtHist=()=>updateHistory(true); // 測試用：立刻比對歷史軌跡
+$("schedok").onclick=()=>{ if(S.setup&&S.setup.changes){S.setup.changes.ack=true;save();render();} };
+$("schedgo").onclick=()=>{ go("stop"); $("addr").focus(); };
+let pollTimer=null;
+function startPoll(){clearInterval(pollTimer);pollTimer=setInterval(()=>{if(document.visibilityState==="visible")refresh();},(S.poll||20)*1000);}
+startPoll();
+setInterval(render,5000);
+})();
+</script>
+</body>
+</html>
