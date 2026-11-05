@@ -174,6 +174,26 @@ public class TrackerService extends Service {
             }
             Set<String> fired = firedKeys(this);
             List<Tracker.Alarm> alarms = tracker.step(cfg, cal, System.currentTimeMillis(), sts, cars, fired);
+            // GPS 中斷：抓那段行車紀錄，看中斷時有沒有經過提醒點（最多 3 段）
+            int n = 0;
+            for (Tracker.Gap gp : new ArrayList<>(tracker.gaps)) {
+                if (n++ >= 3) { alarms.addAll(tracker.backfill(cfg, cal, System.currentTimeMillis(), gp, new ArrayList<>(), fired)); continue; }
+                try {
+                    JSONArray h = call(new JSONObject().put("Cust_ID", cfg.cust).put("Car_Unicode", gp.car.id)
+                            .put("StartTime", f.format(new java.util.Date(gp.from - 5000))).put("EndTime", f.format(new java.util.Date(gp.to + 5000)))
+                            .put("MethodName", "GetHistoryTrack"));
+                    List<double[]> pts = new ArrayList<>();
+                    for (int i = 0; i < h.length(); i++) {
+                        JSONObject o = h.getJSONObject(i);
+                        double la = o.optDouble("Log_GISY", 0) / 1e6, ln = o.optDouble("Log_GISX", 0) / 1e6;
+                        long t; try { t = f.parse(o.optString("Log_DTime")).getTime(); } catch (Exception e) { continue; }
+                        if (la != 0 && ln != 0) pts.add(new double[]{la, ln, t});
+                    }
+                    alarms.addAll(tracker.backfill(cfg, cal, System.currentTimeMillis(), gp, pts, fired));
+                } catch (Exception e) { // 連不上：用照路線推算的結果
+                    alarms.addAll(tracker.backfill(cfg, cal, System.currentTimeMillis(), gp, new ArrayList<>(), fired));
+                }
+            }
             saveFired(this, fired);
             updateRunNotification(tracker.summary);
             for (Tracker.Alarm al : alarms) ring(al);

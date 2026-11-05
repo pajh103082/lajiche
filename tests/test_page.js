@@ -17,13 +17,14 @@ const basicOf=()=>[{Route_ID:1,RouteName:'測試路線KEJ-6523(新)',CarUnicode:
 // 假的歷史軌跡：垃圾車從視窗開始 10 分鐘後一站一站走（每站 3 分鐘）；8 號回收車晚 4 分鐘跟著；77 號只在兩站出現、時間差很多
 const parseDT=x=>new Date(x.replace(' ','T')+'+08:00').getTime();
 const fmtLog=ms=>{const d=new Date(ms);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`};
-let histWinStart=null, noRecycle=false, noHist=false; // noRecycle：模擬「這個星期幾沒有回收車跟著收」
+let histWinStart=null, noRecycle=false, noHist=false, detour=null; // detour：行車紀錄裡多幾個點（GPS 中斷時開過的地方） // noRecycle：模擬「這個星期幾沒有回收車跟著收」
 const histTrack=p=>{const a=parseDT(p.StartTime),b=parseDT(p.EndTime); if(histWinStart===null||a<histWinStart-3600e3) histWinStart=a; const base=histWinStart;
   const out=[]; const add=(ms,lat,lng)=>{if(ms>=a&&ms<=b) out.push({Log_DTime:fmtLog(ms),Log_GISY:Math.round(lat*1e6),Log_GISX:Math.round(lng*1e6)});};
   pts.forEach((q,i)=>{const t0=base+10*60000+i*3*60000;
     if(p.Car_Unicode==='9') add(t0,q.GISY,q.GISX);
     if(p.Car_Unicode==='8'&&!noRecycle) add(t0+4*60000,q.GISY,q.GISX);
     if(p.Car_Unicode==='77'&&i<2) add(t0+50*60000,q.GISY,q.GISX);});
+  if(detour&&p.Car_Unicode==='9') detour.forEach(d=>add(d.t,d.lat,d.lng));
   return out;};
 const resp={GetAllRouteBasicData:basicOf(),GetRoutePlanDetail:plan,GetGisFromAddr:[{GISX:120.98,GISY:24.9}],GetCustIDByLocation:[{Cust_ID:'5009999',Team_ID:'5002785'}],GetRecommandPoint:pts,
  GetRemovalStatus:[{routeId:1,removealPointToArrivalId:102,reachMinutes:2,reachDistance:150,responsibleCar:'9'}],
@@ -244,6 +245,42 @@ const resp={GetAllRouteBasicData:basicOf(),GetRoutePlanDetail:plan,GetGisFromAdd
   const chip2=(await pg5.locator('#chips-0 .chip').nth(1).innerText()).replace(/\s+/g,' ');
   console.log('new notice banner:',(await pg5.locator('#noticeline').innerText()).replace(/\s+/g,' ').slice(0,60),'| chip no longer official:',!/清潔隊班表/.test(chip2));
   delete resp.GetMsg; resp.GetCustIDByLocation=[{Cust_ID:'5009999',Team_ID:'5002785'}]; noHist=false; await pg5.close();
+ }
+ // ===== 提醒點：GPS 中斷時經過也要響 =====
+ {
+  const tsMs=ms=>{const n=new Date(ms);return `${n.getFullYear()}-${pad(n.getMonth()+1)}-${pad(n.getDate())} ${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`};
+  const keep=JSON.parse(JSON.stringify(resp.GetCarStatusGarbage)), keepRS=JSON.parse(JSON.stringify(resp.GetRemovalStatus));
+  const run=async(label,gate,opts)=>{
+    const now=Date.now();
+    // 第 1 次：垃圾車在第 4 站附近（4 分多鐘前），一打開就是這個位置
+    resp.GetRemovalStatus=[{routeId:1,removealPointToArrivalId:105,reachMinutes:8,reachDistance:300,responsibleCar:'9'}];
+    resp.GetCarStatusGarbage=[Object.assign({},keep[0],{Log_GISY:24.904,Log_GISX:120.984,Log_DTime:tsMs(now-4.2*60000)})];
+    const pg6=await b.newPage({viewport:{width:400,height:860}});
+    pg6.on('pageerror',e=>console.log('PAGE ERROR (gap)',e.message));
+    await pg6.route('**/*',H);
+    await pg6.goto('https://app.test/');await pg6.waitForTimeout(300);
+    await pg6.fill('#addr','x');await pg6.click('#searchbtn');await pg6.waitForTimeout(300);await pg6.click('#pick-0');await pg6.click('#savebtn');await pg6.waitForTimeout(1500);
+    await pg6.evaluate(g=>{const S=JSON.parse(localStorage.getItem('ljt-live'));S.gates=[g];S.gateOn=true;localStorage.setItem('ljt-live',JSON.stringify(S));},gate);
+    await pg6.reload();await pg6.waitForTimeout(800);
+    await pg6.click('#startbtn');await pg6.waitForTimeout(200);
+    const closeAll=async()=>{for(let i=0;i<5&&await pg6.locator('#alarm').isVisible();i++){await pg6.click('#a-ok');await pg6.waitForTimeout(500);}};
+    await pg6.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await pg6.waitForTimeout(600);
+    const before=await pg6.locator('#alarm').isVisible()&&/提醒點/.test(await pg6.locator('#a-big').innerText()+await pg6.locator('#a-kind').innerText());
+    await closeAll();
+    // GPS 斷 4 分鐘：第 2 次已經在第 9 站附近
+    resp.GetRemovalStatus=[{routeId:1,removealPointToArrivalId:110,reachMinutes:2,reachDistance:100,responsibleCar:'9'}];
+    resp.GetCarStatusGarbage=[Object.assign({},keep[0],{Log_GISY:24.909,Log_GISX:120.989,Log_DTime:tsMs(now-30000)})];
+    if(opts.detour) detour=opts.detour(now);
+    await pg6.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await pg6.waitForTimeout(1500);
+    let vis=false, sub=''; for(let i=0;i<5&&await pg6.locator('#alarm').isVisible();i++){ const t=await pg6.locator('#a-sub').innerText(); if(/提醒點/.test(await pg6.locator('#a-big').innerText())){vis=true;sub=t;break;} await pg6.click('#a-ok');await pg6.waitForTimeout(500);} 
+    console.log(label,'| before gap:',before,'| alarm:',vis,'|',sub,'| ok:',!before&&vis&&opts.expect.test(sub));
+    detour=null; await pg6.close();
+  };
+  noHist=true; // A：沒有行車紀錄，只能照路線推算
+  await run('gap A (route)',{id:'ga',lat:24.907,lng:120.987,r:50,name:'測試路7號附近'},{expect:/可能已經經過/});
+  noHist=false; // B：提醒點在路線外 120 公尺（路線推算不到），行車紀錄有開過去
+  await run('gap B (history)',{id:'gb',lat:24.9065,lng:120.9885,r:40,name:'巷子裡'},{expect:/行車紀錄/,detour:now=>[{t:now-2.5*60000,lat:24.9064,lng:120.9884}]});
+  resp.GetCarStatusGarbage=keep; resp.GetRemovalStatus=keepRS;
  }
  // ===== 規劃路線沒經過最後兩站：要照 GPS 軌跡接起來，不能畫灰色點線 =====
  {

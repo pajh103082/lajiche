@@ -894,7 +894,9 @@ async function refresh(){
     ]);
     const old={}; cars.forEach(c=>old[c.id]=c);
     status=a; cars=b.map(c=>{const n={id:String(c.Car_Unicode),type:typeOf(c.Car_Style),plate:c.Car_Number,lat:c.Log_GISY,lng:c.Log_GISX,dir:c.Log_Direct,t:logTime(c.Log_DTime)};
-      const o=old[n.id]; if(o) n.prev=(o.t<n.t)?{lat:o.lat,lng:o.lng,t:o.t}:o.prev; return n;});
+      const o=old[n.id]; if(o) n.prev=(o.t<n.t)?{lat:o.lat,lng:o.lng,t:o.t}:o.prev;
+      else { const m=lastSeen[n.id]; if(m&&m.t<n.t) n.prev={lat:m.lat,lng:m.lng,t:m.t}; } // 離線一陣子又出現：接上離線前最後的位置
+      return n;});
     cars.forEach(c=>{ if(!c.lat||!c.lng||!c.t) return; const m=lastSeen[c.id];
       if(!m||m.t<c.t) lastSeen[c.id]={lat:c.lat,lng:c.lng,t:c.t,type:c.type,plate:c.plate,dir:c.dir}; });
     scoreRecycle();
@@ -1592,12 +1594,12 @@ function routeAlarm(r){
     say:kind+(here?"到了，請快出門":"還有"+r.away+"站，大約"+eta+"分鐘後到"),
     snooze:(!here&&r.away>1)?{k:dayKey(r.h.pointId),away:r.away}:null};
 }
-function gateAlarm(g,r,hit){
+function gateAlarm(g,r,hit,how){
   const other=hit===r.car?r.mate:r.car, mt=other&&other.type!==hit.type?other.type:null;
   const kind=mt?(hit.type==="garbage"?"垃圾車和回收車":"回收車和垃圾車"):kindName(hit.type);
   const coming=r.phase==="coming", eta=Math.max(1,Math.round(r.eta||0));
   return {key:"g"+g.id+"|"+r.h.pointId,type:hit.type,mate:mt,kind,big:"經過提醒點了",
-    sub:"在「"+g.name+"」"+(coming?"，到您家還有 "+r.away+" 站，大約 "+eta+" 分鐘":r.phase==="here"?"，已經到您家這站":""),
+    sub:"在「"+g.name+"」"+(how?"（"+how+"）":"")+(coming?"，到您家還有 "+r.away+" 站，大約 "+eta+" 分鐘":r.phase==="here"?"，已經到您家這站":""),
     say:kind+"經過"+g.name+"了"+(coming?"，還有"+r.away+"站到您家":""),snooze:null};
 }
 function checkAlarms(rs){
@@ -1620,16 +1622,85 @@ function passDist(g,c){ // 用上一次和這一次的位置連成線段，車�
   const [ax,ay]=xy(g,p.lat,p.lng),[bx,by]=xy(g,c.lat,c.lng),dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;
   const t=L2?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/L2)):0; return Math.hypot(ax+t*dx,ay+t*dy);
 }
+// ---------- 提醒點 ----------
+// 車子經過提醒點的判斷，三層：
+// 1. 直接：這一次和上一次的位置連成線段，離提醒點 r 公尺內（車子開很快跳過也抓得到）。
+// 2. 補抓行車紀錄：兩次位置隔超過 40 秒（GPS 中斷、離線又出現、網頁被暫停），就向資料平台要那段的行車紀錄（約每 5 秒一點）再檢查一次，連轉角都準。
+// 3. 照路線推算（備案，只在抓不到行車紀錄時用）：中斷前後車子在路線上的進度（沿著路線的公尺數）從「提醒點之前」到「之後」，就提醒「可能已經經過」。
+//    2026-11-05 用真資料模擬：實際開的順序跟規劃路線不完全一樣、路線會重疊，只靠推算約 9% 會提早響，所以只當備案，
+//    而且要：真的有中斷、進度只往前找、沿路線的距離 ≤ 每秒 15 公尺能開的距離、≤ 直線距離 ×2.5＋300 公尺。
+const GAP_MS=40000, INFER_MAX_MS=30*60000, BACKFILL_MAX_MS=60*60000, MAX_SPEED=15;
+const prog={}, gateIdxCache={}, backfillDone={};
+function segProj(g,a,b){ const [ax,ay]=xy(g,a[0],a[1]),[bx,by]=xy(g,b[0],b[1]),dx=bx-ax,dy=by-ay,L2=dx*dx+dy*dy;
+  const t=L2?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/L2)):0; return {d:Math.hypot(ax+t*dx,ay+t*dy),t}; } // 點到線段的距離、投影在線段上的位置（0～1）
+function segDistM(g,a,b){ return segProj(g,a,b).d; }
+function routeGeo(h){ // 路線點＋累積長度（公尺）
+  const line=routeLine(h), key=h.routeId+"|"+line.length; if(gateIdxCache[key]&&gateIdxCache[key].line===line) return gateIdxCache[key];
+  const cum=[0]; for(let j=1;j<line.length;j++) cum.push(cum[j-1]+ptDist({lat:line[j-1][0],lng:line[j-1][1]},{lat:line[j][0],lng:line[j][1]}));
+  return (gateIdxCache[key]={line,cum,gates:{}});
+}
+function gateIdxs(G,g){ // 路線經過提醒點的地方：每一趟取「路線上離提醒點最近的那一點」，用沿著路線的公尺數表示
+  const k=g.id+"|"+g.r+"|"+g.lat+"|"+g.lng; if(G.gates[k]) return G.gates[k];
+  const out=[]; let best=null; const L=G.line, gp={lat:g.lat,lng:g.lng};
+  for(let j=1;j<L.length;j++){ const q=segProj(gp,L[j-1],L[j]);
+    if(q.d<=g.r){ const pos=G.cum[j-1]+q.t*(G.cum[j]-G.cum[j-1]); if(!best||q.d<best.d) best={d:q.d,pos}; }
+    else if(best){ out.push(best.pos); best=null; } }
+  if(best) out.push(best.pos);
+  return (G.gates[k]=out);
+}
+function progOn(G,c,from,lo,hi){ // 車子在路線上的進度：{j:線段編號, pos:沿著路線的公尺數}；不在路線 60 公尺內回傳 null
+  const L=G.line, cp={lat:c.lat,lng:c.lng}, near=j=>segProj(cp,L[j-1],L[j]);
+  const scan=(a,b)=>{ for(let j=Math.max(1,a);j<=Math.min(L.length-1,b);j++){ const q=near(j); if(q.d<=ONROUTE_M){ let best=j,bq=q;
+      for(let k=j+1;k<L.length&&k<j+60;k++){ const e=near(k); if(e.d>ONROUTE_M) break; if(e.d<bq.d-0.5){bq=e;best=k;} }
+      return {j:best,pos:G.cum[best-1]+bq.t*(G.cum[best]-G.cum[best-1])}; } } return null; };
+  let r=null; if(lo!==undefined) r=scan(lo,hi);          // 垃圾車：照「正往第幾站」限定範圍
+  if(!r&&from>=0) r=scan(from-3,L.length-1);             // 從上一次的進度往前找
+  if(!r&&from<0) r=scan(1,L.length-1);
+  return r;
+}
+function fireGate(g,r,hit,how){ const key=dayKey("g"+g.id+"|"+r.h.pointId), st=gateSt[key]||(gateSt[key]={fired:false,t:0});
+  if(st.fired) return; st.fired=true; st.t=Date.now(); markFired(key); push(gateAlarm(g,r,hit,how)); }
 function checkGates(rs){
   const now=Date.now();
-  (S.gates||[]).forEach(g=>rs.forEach(r=>{
+  rs.forEach(r=>{
     if(!r.runsToday) return;
     const cs=[r.car,r.mate].filter(c=>c&&c.lat&&now-c.t<5*60000); if(!cs.length) return;
-    const key=dayKey("g"+g.id+"|"+r.h.pointId), st=gateSt[key]||(gateSt[key]={fired:false,t:0});
-    const hit=cs.find(c=>passDist(g,c)<=g.r);
-    if(hit&&!st.fired){st.fired=true;st.t=now;markFired(key);push(gateAlarm(g,r,hit));}
-    else if(st.fired&&!hit&&now-st.t>5*60000&&cs.every(c=>ptDist(g,c)>g.r*2.5)) st.fired=false; // 走遠了，下次再經過還會提醒
-  }));
+    const G=routeGeo(r.h), P=r.h.path;
+    cs.forEach(c=>{
+      const pk=r.h.routeId+"|"+c.id, P0=prog[pk];
+      let lo,hi; if(c===r.car&&P&&P.si&&!P.straight&&r.ni>=0){ lo=P.si[Math.max(0,r.ni-1)]; hi=P.si[r.ni]+1; }
+      const q=progOn(G,c,P0?P0.j:-1,lo,hi);
+      const pv=c.prev;
+      if(pv&&pv.t&&c.t-pv.t>GAP_MS&&c.t-pv.t<=BACKFILL_MAX_MS){
+        // 照路線推算的結果先算好，抓不到行車紀錄時才用
+        let guess=[];
+        if(P0&&q&&q.pos>P0.pos&&c.t>P0.t&&c.t-P0.t<=INFER_MAX_MS&&q.pos-P0.pos<=Math.max(800,(c.t-P0.t)/1000*MAX_SPEED)&&q.pos-P0.pos<=ptDist(P0,c)*2.5+300)
+          guess=(S.gates||[]).filter(g=>gateIdxs(G,g).some(x=>x>P0.pos&&x<=q.pos));
+        backfillGates(r,c,pv.t,c.t,guess);
+      }
+      if(q&&(!P0||c.t>=P0.t)) prog[pk]={j:q.j,pos:q.pos,t:c.t,lat:c.lat,lng:c.lng};
+    });
+    // 1. 直接經過
+    (S.gates||[]).forEach(g=>{
+      const key=dayKey("g"+g.id+"|"+r.h.pointId), st=gateSt[key]||(gateSt[key]={fired:false,t:0});
+      const hit=cs.find(c=>passDist(g,c)<=g.r);
+      if(hit) fireGate(g,r,hit,"");
+      else if(st.fired&&now-st.t>5*60000&&cs.every(c=>ptDist(g,c)>g.r*2.5)) st.fired=false; // 走遠了，下次再經過還會提醒
+    });
+  });
+}
+async function backfillGates(r,c,from,to,guess){
+  const bk=r.h.routeId+"|"+c.id+"|"+from; if(backfillDone[bk]||!S.setup) return; backfillDone[bk]=1;
+  const open=(S.gates||[]).filter(g=>{ const st=gateSt[dayKey("g"+g.id+"|"+r.h.pointId)]; return !(st&&st.fired); }); if(!open.length) return;
+  const fallback=()=>(guess||[]).forEach(g=>{ if(open.includes(g)) fireGate(g,r,c,"可能已經經過：GPS 中斷，照路線推算"); });
+  try{ const got=(await trackOf(S.setup.cust,c.id,new Date(from-5000),new Date(to+5000))).filter(p=>p.t);
+    if(!got.length){ fallback(); return; }
+    const pv=c.prev, tr=[{lat:pv.lat,lng:pv.lng,t:pv.t}].concat(got,[{lat:c.lat,lng:c.lng,t:c.t}]).sort((a,b)=>a.t-b.t); // 前後接上中斷前、恢復後的位置
+    open.forEach(g=>{ const gp={lat:g.lat,lng:g.lng};
+      for(let k=0;k<tr.length;k++){
+        const ok=ptDist(gp,tr[k])<=g.r||(k>0&&tr[k].t-tr[k-1].t<=60000&&segDistM(gp,[tr[k-1].lat,tr[k-1].lng],[tr[k].lat,tr[k].lng])<=g.r);
+        if(ok){ fireGate(g,r,c,"GPS 中斷時經過，"+clockOf(tr[k].t)+" 的行車紀錄"); break; } } });
+  }catch(e){ fallback(); }
 }
 function push(a){
   if(current&&current.key===a.key){current=a;showAlarm();return;}

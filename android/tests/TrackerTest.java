@@ -167,6 +167,46 @@ public class TrackerTest {
         check("找到 KEC-2128（車牌後面的「影」不影響）", r9.mate != null && r9.mate.id.equals("80632"));
         h.recyclePlate = ""; h.recyclePin = "8";
 
+        System.out.println("13. GPS 斷了 4 分鐘：照路線推算也要響提醒點");
+        {
+            h.recyclePin = ""; h.recycleLearned = ""; h.recycleNone = true; h.recyclePlate = "";
+            h.line.clear(); for (int i = 0; i < 12; i++) { h.line.add(new double[]{24.9 + i * 0.001, 120.98 + i * 0.001}); if (i < 11) h.line.add(new double[]{24.9005 + i * 0.001, 120.9805 + i * 0.001}); }
+            Tracker.Gate g7 = new Tracker.Gate(); g7.id = "g7"; g7.lat = 24.907; g7.lng = 120.987; g7.r = 50; g7.name = "測試路7號附近";
+            List<Tracker.Gate> keepG = new ArrayList<>(cfg.gates); cfg.gates.clear(); cfg.gates.add(g7);
+            Tracker t10 = new Tracker(); Set<String> f10 = new HashSet<>();
+            st.nextPointId = 105; st.reachDistance = 300;
+            List<Tracker.Car> a1 = new ArrayList<>(); a1.add(car("9", "garbage", 24.904, 120.984, now));
+            List<Tracker.Alarm> o1 = t10.step(cfg, cal, now, sts, a1, f10);
+            boolean g1 = false; for (Tracker.Alarm x : o1) if (x.title.contains("提醒點")) g1 = true;
+            check("中斷前還沒經過：不響", !g1);
+            st.nextPointId = 110;
+            List<Tracker.Car> a2 = new ArrayList<>(); a2.add(car("9", "garbage", 24.909, 120.989, now + 4 * 60000L));
+            List<Tracker.Alarm> o2 = t10.step(cfg, cal, now + 4 * 60000L, sts, a2, f10);
+            boolean gNow = false; for (Tracker.Alarm x : o2) if (x.title.contains("提醒點")) gNow = true;
+            check("先不靠推算響（等行車紀錄）", !gNow);
+            check("有記下要補抓的中斷，推算出提醒點", t10.gaps.size() == 1 && t10.gaps.get(0).guess.size() == 1);
+            List<Tracker.Alarm> o2b = t10.backfill(cfg, cal, now + 4 * 60000L, t10.gaps.get(0), new ArrayList<>(), f10);
+            Tracker.Alarm ga = o2b.isEmpty() ? null : o2b.get(0);
+            check("抓不到行車紀錄：照路線推算響了", ga != null);
+            check("說明寫可能已經經過", ga != null && ga.text.contains("可能已經經過"));
+
+            System.out.println("14. 提醒點在路線外：補抓行車紀錄才知道有開過去");
+            Tracker.Gate gb = new Tracker.Gate(); gb.id = "gb"; gb.lat = 24.9065; gb.lng = 120.9885; gb.r = 40; gb.name = "巷子裡";
+            cfg.gates.clear(); cfg.gates.add(gb);
+            Tracker t11 = new Tracker(); Set<String> f11 = new HashSet<>();
+            st.nextPointId = 105;
+            t11.step(cfg, cal, now, sts, a1, f11);
+            st.nextPointId = 110;
+            List<Tracker.Alarm> o3 = t11.step(cfg, cal, now + 4 * 60000L, sts, a2, f11);
+            boolean g3 = false; for (Tracker.Alarm x : o3) if (x.title.contains("提醒點")) g3 = true;
+            check("只看路線：抓不到（提醒點不在路線上）", !g3 && t11.gaps.size() == 1);
+            List<double[]> trk = new ArrayList<>(); trk.add(new double[]{24.9064, 120.9884, now + 90000L});
+            List<Tracker.Alarm> o4 = t11.backfill(cfg, cal, now + 4 * 60000L, t11.gaps.get(0), trk, f11);
+            check("補抓行車紀錄後響了", o4.size() == 1 && o4.get(0).text.contains("行車紀錄"));
+            check("不會重複響", t11.backfill(cfg, cal, now + 4 * 60000L, t11.gaps.get(0), trk, f11).isEmpty());
+            cfg.gates.clear(); cfg.gates.addAll(keepG); h.line.clear(); h.recycleNone = false; h.recyclePin = "8";
+        }
+
         System.out.println(fail == 0 ? "全部通過" : ("有 " + fail + " 項失敗"));
         if (fail > 0) System.exit(1);
     }

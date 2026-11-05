@@ -4,6 +4,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -206,6 +207,95 @@ public class Tracker {
         return null;
     }
 
+    // ---------- 提醒點：GPS 中斷時也不漏（跟網頁的 checkGates／backfillGates 同一套） ----------
+    // 1. 直接：上一次和這一次的位置連成線段，離提醒點 r 公尺內。
+    // 2. 補抓行車紀錄：兩次位置隔超過 40 秒，TrackerService 會抓那段的行車紀錄，呼叫 backfill() 再檢查一次。
+    // 3. 照路線推算（備案）：抓不到行車紀錄時（backfill 收到空的），用中斷前後在路線上的進度推算，提醒「可能已經經過」。
+    //    真資料模擬只靠推算約 9% 會提早響，所以只當備案。條件：真的有中斷、只往前找、沿路線距離 ≤ 每秒 15 公尺、≤ 直線距離 ×2.5＋300。
+    static final long GAP_MS = 40000L, INFER_MAX_MS = 30 * 60000L, BACKFILL_MAX_MS = 60 * 60000L;
+    static final double MAX_SPEED = 15;
+    private final Map<String, double[]> prog = new HashMap<>();    // 路線|車 → {線段編號, 沿著路線的公尺數, 時間, lat, lng}
+    private final Map<String, double[]> cumCache = new HashMap<>();
+    private final Set<String> backfillDone = new HashSet<>();
+    public static class Gap { public RState r; public Car car; public long from, to; public double fromLat, fromLng; public List<Gate> guess = new ArrayList<>(); }
+    /** 這次發現的 GPS 中斷，TrackerService 要去抓行車紀錄 */
+    public final List<Gap> gaps = new ArrayList<>();
+
+    /** 點到線段：{距離（公尺）, 投影在線段上的位置 0～1} */
+    static double[] segProj(double glat, double glng, double[] a, double[] b) {
+        double k = Math.cos(Math.toRadians(glat)) * 111320;
+        double ax = (a[1] - glng) * k, ay = (a[0] - glat) * 110574, bx = (b[1] - glng) * k, by = (b[0] - glat) * 110574;
+        double dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        double t = l2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+        return new double[]{Math.hypot(ax + t * dx, ay + t * dy), t};
+    }
+    static double segDist(double glat, double glng, double[] a, double[] b) { return segProj(glat, glng, a, b)[0]; }
+    double[] cumOf(Home h, List<double[]> L) {
+        String key = h.routeId + "|" + L.size(); double[] c = cumCache.get(key);
+        if (c != null) return c;
+        c = new double[L.size()];
+        for (int j = 1; j < L.size(); j++) c[j] = c[j - 1] + dist(L.get(j - 1)[0], L.get(j - 1)[1], L.get(j)[0], L.get(j)[1]);
+        cumCache.put(key, c); return c;
+    }
+    /** 路線經過提醒點的地方：每一趟取「路線上離提醒點最近的那一點」，用沿著路線的公尺數表示 */
+    static List<Double> gatePos(List<double[]> L, double[] cum, Gate g) {
+        List<Double> out = new ArrayList<>(); double bd = -1, bp = 0;
+        for (int j = 1; j < L.size(); j++) {
+            double[] q = segProj(g.lat, g.lng, L.get(j - 1), L.get(j));
+            if (q[0] <= g.r) { if (bd < 0 || q[0] < bd) { bd = q[0]; bp = cum[j - 1] + q[1] * (cum[j] - cum[j - 1]); } }
+            else if (bd >= 0) { out.add(bp); bd = -1; }
+        }
+        if (bd >= 0) out.add(bp);
+        return out;
+    }
+    /** 車子在路線上的進度 {線段編號, 沿著路線的公尺數}；不在路線 60 公尺內回傳 null */
+    static double[] progOn(List<double[]> L, double[] cum, Car c, int from) {
+        int start = from >= 0 ? Math.max(1, from - 3) : 1;
+        for (int j = start; j < L.size(); j++) {
+            double[] q = segProj(c.lat, c.lng, L.get(j - 1), L.get(j));
+            if (q[0] <= ONROUTE_M) {
+                int best = j; double[] bq = q;
+                for (int k = j + 1; k < L.size() && k < j + 60; k++) {
+                    double[] e = segProj(c.lat, c.lng, L.get(k - 1), L.get(k));
+                    if (e[0] > ONROUTE_M) break;
+                    if (e[0] < bq[0] - 0.5) { bq = e; best = k; }
+                }
+                return new double[]{best, cum[best - 1] + bq[1] * (cum[best] - cum[best - 1])};
+            }
+        }
+        return null;
+    }
+    void fireGate(Gate g, RState r, Car c, Calendar cal, long now, Set<String> fired, List<Alarm> out, String how) {
+        String key = dayKey(cal, "g" + g.id + "|" + r.h.pointId);
+        if (fired.contains(key)) return;
+        fired.add(key); gateFiredAt.put(key, now); out.add(gateAlarm(g, r, c, key, how));
+    }
+    /** 補抓到的行車紀錄（{lat, lng, t}）：中斷時有沒有開進提醒點 */
+    public List<Alarm> backfill(Cfg cfg, Calendar cal, long now, Gap gp, List<double[]> track, Set<String> fired) {
+        List<Alarm> out = new ArrayList<>();
+        if (!cfg.gateOn) return out;
+        if (track == null || track.isEmpty()) { // 抓不到行車紀錄：用照路線推算的結果
+            for (Gate g : gp.guess) fireGate(g, gp.r, gp.car, cal, now, fired, out, "可能已經經過：GPS 中斷，照路線推算");
+            return out;
+        }
+        List<double[]> tr = new ArrayList<>();
+        tr.add(new double[]{gp.fromLat, gp.fromLng, gp.from});
+        tr.addAll(track);
+        tr.add(new double[]{gp.car.lat, gp.car.lng, gp.to});
+        tr.sort((x, y) -> Double.compare(x[2], y[2]));
+        java.text.SimpleDateFormat hm = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.US);
+        hm.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Taipei"));
+        for (Gate g : cfg.gates) {
+            for (int k = 0; k < tr.size(); k++) {
+                double[] p = tr.get(k);
+                boolean ok = dist(g.lat, g.lng, p[0], p[1]) <= g.r
+                        || (k > 0 && p[2] - tr.get(k - 1)[2] <= 60000 && segDist(g.lat, g.lng, tr.get(k - 1), p) <= g.r);
+                if (ok) { fireGate(g, gp.r, gp.car, cal, now, fired, out, "GPS 中斷時經過，" + hm.format(new java.util.Date((long) p[2])) + " 的行車紀錄"); break; }
+            }
+        }
+        return out;
+    }
+
     // ---------- 每次查完資料呼叫一次，回傳要響的鬧鐘 ----------
     public List<Alarm> step(Cfg cfg, Calendar cal, long now, List<Status> sts, List<Car> cars, Set<String> fired) {
         List<Alarm> out = new ArrayList<>();
@@ -222,7 +312,28 @@ public class Tracker {
                 fired.add(k + "here"); out.add(routeAlarm(r, k + "here"));
             }
         }
-        if (cfg.gateOn) for (Gate g : cfg.gates) for (RState r : rs) {
+        gaps.clear();
+        if (cfg.gateOn && !cfg.gates.isEmpty()) for (RState r : rs) { // 2. 照路線回推、3. 記下要補抓行車紀錄的中斷
+            if (!r.runsToday) continue;
+            List<double[]> L = lineOf(r.h); if (L.size() < 2) continue;
+            double[] cum = cumOf(r.h, L);
+            for (Car c : new Car[]{r.car, r.mate}) {
+                if (!fresh(c, now)) continue;
+                String pk = r.h.routeId + "|" + c.id; double[] p0 = prog.get(pk); // {線段編號, 公尺數, 時間, lat, lng}
+                double[] q = progOn(L, cum, c, p0 != null ? (int) p0[0] : -1);
+                double[] pv = prev.get(c.id);
+                if (pv != null && c.t - (long) pv[2] > GAP_MS && c.t - (long) pv[2] <= BACKFILL_MAX_MS && backfillDone.add(pk + "|" + (long) pv[2])) {
+                    Gap gp = new Gap(); gp.r = r; gp.car = c; gp.from = (long) pv[2]; gp.to = c.t; gp.fromLat = pv[0]; gp.fromLng = pv[1];
+                    if (p0 != null && q != null && q[1] > p0[1] && c.t > p0[2] && c.t - p0[2] <= INFER_MAX_MS
+                            && q[1] - p0[1] <= Math.max(800, (c.t - p0[2]) / 1000.0 * MAX_SPEED)
+                            && q[1] - p0[1] <= dist(p0[3], p0[4], c.lat, c.lng) * 2.5 + 300)
+                        for (Gate g : cfg.gates) for (double gpos : gatePos(L, cum, g)) if (gpos > p0[1] && gpos <= q[1]) { gp.guess.add(g); break; }
+                    gaps.add(gp);
+                }
+                if (q != null && (p0 == null || c.t >= p0[2])) prog.put(pk, new double[]{q[0], q[1], c.t, c.lat, c.lng});
+            }
+        }
+        if (cfg.gateOn) for (Gate g : cfg.gates) for (RState r : rs) { // 1. 直接經過
             if (!r.runsToday) continue;
             List<Car> cs = new ArrayList<>();
             if (fresh(r.car, now)) cs.add(r.car);
@@ -231,8 +342,8 @@ public class Tracker {
             String key = dayKey(cal, "g" + g.id + "|" + r.h.pointId);
             Car hit = null;
             for (Car c : cs) if (passDist(g, c) <= g.r) { hit = c; break; }
-            if (hit != null && !fired.contains(key)) {
-                fired.add(key); gateFiredAt.put(key, now); out.add(gateAlarm(g, r, hit, key));
+            if (hit != null) {
+                fireGate(g, r, hit, cal, now, fired, out, "");
             } else if (hit == null && fired.contains(key)) {
                 long at = gateFiredAt.containsKey(key) ? gateFiredAt.get(key) : 0;
                 boolean far = true;
@@ -262,7 +373,8 @@ public class Tracker {
         return a;
     }
 
-    Alarm gateAlarm(Gate g, RState r, Car hit, String key) {
+    Alarm gateAlarm(Gate g, RState r, Car hit, String key) { return gateAlarm(g, r, hit, key, ""); }
+    Alarm gateAlarm(Gate g, RState r, Car hit, String key, String how) {
         Alarm a = new Alarm();
         Car other = hit == r.car ? r.mate : r.car;
         String mt = other != null && !other.type.equals(hit.type) ? other.type : null;
@@ -270,7 +382,7 @@ public class Tracker {
         boolean coming = "coming".equals(r.phase);
         long eta = Math.max(1, Math.round(r.eta));
         a.title = a.kind + "經過提醒點了";
-        a.text = "在「" + g.name + "」" + (coming ? "，到您家還有 " + r.away + " 站，大約 " + eta + " 分鐘" : "here".equals(r.phase) ? "，已經到您家這站" : "");
+        a.text = "在「" + g.name + "」" + (how != null && !how.isEmpty() ? "（" + how + "）" : "") + (coming ? "，到您家還有 " + r.away + " 站，大約 " + eta + " 分鐘" : "here".equals(r.phase) ? "，已經到您家這站" : "");
         a.say = a.kind + "經過" + g.name + "了" + (coming ? "，還有" + r.away + "站到您家" : "");
         return a;
     }
